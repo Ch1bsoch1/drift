@@ -419,17 +419,41 @@ export default function App() {
 }
 
 // ─── AUTH SCREEN ──────────────────────────────────────────────────────────────
+// ─── AUTH SCREEN ──────────────────────────────────────────────────────────────
+const COUNTRIES = [
+  {code:"GB",dial:"+44",flag:"🇬🇧",name:"UK"},
+  {code:"US",dial:"+1",flag:"🇺🇸",name:"US"},
+  {code:"NG",dial:"+234",flag:"🇳🇬",name:"Nigeria"},
+  {code:"GH",dial:"+233",flag:"🇬🇭",name:"Ghana"},
+  {code:"ZA",dial:"+27",flag:"🇿🇦",name:"South Africa"},
+  {code:"KE",dial:"+254",flag:"🇰🇪",name:"Kenya"},
+  {code:"DE",dial:"+49",flag:"🇩🇪",name:"Germany"},
+  {code:"FR",dial:"+33",flag:"🇫🇷",name:"France"},
+  {code:"ES",dial:"+34",flag:"🇪🇸",name:"Spain"},
+  {code:"IT",dial:"+39",flag:"🇮🇹",name:"Italy"},
+  {code:"NL",dial:"+31",flag:"🇳🇱",name:"Netherlands"},
+  {code:"IE",dial:"+353",flag:"🇮🇪",name:"Ireland"},
+  {code:"AU",dial:"+61",flag:"🇦🇺",name:"Australia"},
+  {code:"CA",dial:"+1",flag:"🇨🇦",name:"Canada"},
+  {code:"JP",dial:"+81",flag:"🇯🇵",name:"Japan"},
+  {code:"BR",dial:"+55",flag:"🇧🇷",name:"Brazil"},
+  {code:"IN",dial:"+91",flag:"🇮🇳",name:"India"},
+  {code:"AE",dial:"+971",flag:"🇦🇪",name:"UAE"},
+];
+
 function AuthScreen({ onAuth }) {
   const [step, setStep] = useState("phone");
+  const [country, setCountry] = useState(COUNTRIES[0]);
+  const [showCountries, setShowCountries] = useState(false);
   const [phone, setPhone] = useState("");
   const [otp, setOtp] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
   const sendCode = async () => {
-    if (phone.length < 8) return;
+    if (phone.length < 6) return;
     setLoading(true); setError("");
-    const { error: e } = await supabase.auth.signInWithOtp({ phone: `+44${phone}` });
+    const { error: e } = await supabase.auth.signInWithOtp({ phone: `${country.dial}${phone}` });
     setLoading(false);
     if (e) { setError(e.message); return; }
     setStep("otp");
@@ -438,7 +462,7 @@ function AuthScreen({ onAuth }) {
   const verifyCode = async () => {
     if (otp.length < 4) return;
     setLoading(true); setError("");
-    const { data, error: e } = await supabase.auth.verifyOtp({ phone: `+44${phone}`, token: otp, type: "sms" });
+    const { data, error: e } = await supabase.auth.verifyOtp({ phone: `${country.dial}${phone}`, token: otp, type: "sms" });
     if (e) { setError(e.message); setLoading(false); return; }
     onAuth(data.user);
   };
@@ -449,48 +473,51 @@ function AuthScreen({ onAuth }) {
         <div style={{fontFamily:"'Bebas Neue',cursive",fontSize:54,letterSpacing:5,background:"linear-gradient(135deg,#9B30FF,#FF2D78)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>DRIFT</div>
         <div style={{fontSize:12,color:"var(--mut)",marginTop:4,letterSpacing:2,textTransform:"uppercase"}}>Drift Through The Night</div>
       </div>
-
       <div style={{width:"100%",maxWidth:320}}>
         {step==="phone" ? (
           <>
             <div style={{fontSize:22,fontWeight:700,marginBottom:5}}>Enter your number</div>
             <div style={{fontSize:13,color:"var(--mut)",marginBottom:22}}>We'll send a code to verify it's you</div>
-            <div style={{display:"flex",background:"var(--s1)",border:"1px solid var(--bdr)",borderRadius:14,overflow:"hidden",marginBottom:14}}>
-              <div style={{padding:"14px 14px",fontSize:14,color:"var(--mut)",borderRight:"1px solid var(--bdr)",flexShrink:0,userSelect:"none"}}>🇬🇧 +44</div>
+            <div style={{position:"relative",marginBottom:10}}>
+              <button onClick={()=>setShowCountries(!showCountries)} style={{width:"100%",background:"var(--s1)",border:"1px solid var(--bdr)",borderRadius:14,padding:"13px 16px",display:"flex",alignItems:"center",gap:10,cursor:"pointer"}}>
+                <span style={{fontSize:20}}>{country.flag}</span>
+                <span style={{fontSize:14,color:"var(--txt)",flex:1,textAlign:"left"}}>{country.name}</span>
+                <span style={{fontSize:14,color:"var(--mut)"}}>{country.dial}</span>
+                <span style={{fontSize:10,color:"var(--mut)"}}>▼</span>
+              </button>
+              {showCountries && (
+                <div style={{position:"absolute",top:"calc(100% + 6px)",left:0,right:0,background:"var(--s1)",border:"1px solid var(--bdr)",borderRadius:14,zIndex:100,maxHeight:220,overflowY:"auto",boxShadow:"0 8px 32px rgba(0,0,0,0.6)"}}>
+                  {COUNTRIES.map(c=>(
+                    <button key={c.code+c.dial} onClick={()=>{setCountry(c);setShowCountries(false);}} style={{width:"100%",border:"none",borderBottom:"1px solid rgba(255,255,255,0.05)",padding:"11px 16px",display:"flex",alignItems:"center",gap:10,cursor:"pointer",background:country.code===c.code?"rgba(155,48,255,0.15)":"transparent"}}>
+                      <span style={{fontSize:18}}>{c.flag}</span>
+                      <span style={{fontSize:13,color:"var(--txt)",flex:1,textAlign:"left"}}>{c.name}</span>
+                      <span style={{fontSize:13,color:"var(--mut)"}}>{c.dial}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div style={{background:"var(--s1)",border:"1px solid var(--bdr)",borderRadius:14,overflow:"hidden",marginBottom:14,display:"flex",alignItems:"center"}}>
+              <span style={{padding:"14px 12px 14px 16px",fontSize:14,color:"var(--mut)",flexShrink:0}}>{country.dial}</span>
               <input type="tel" placeholder="7700 900 123" value={phone}
                 onChange={e=>setPhone(e.target.value.replace(/\D/g,""))}
-                style={{flex:1,background:"none",border:"none",outline:"none",padding:"14px 14px",fontSize:16,color:"var(--txt)"}} />
+                style={{flex:1,background:"none",border:"none",outline:"none",padding:"14px 16px 14px 0",fontSize:16,color:"var(--txt)"}} />
             </div>
-            <button onClick={sendCode} style={{
-              width:"100%",padding:15,borderRadius:14,border:"none",
-              background:phone.length>=8?"linear-gradient(135deg,#9B30FF,#FF2D78)":"rgba(255,255,255,0.05)",
-              color:phone.length>=8?"white":"var(--mut)",
-              fontSize:15,fontWeight:700,cursor:phone.length>=8?"pointer":"default",
-              display:"flex",alignItems:"center",justifyContent:"center",gap:10,
-            }}>{loading?<Spinner/>:<><Phone size={16}/>Send Code</>}</button>
+            <button onClick={sendCode} style={{width:"100%",padding:15,borderRadius:14,border:"none",background:phone.length>=6?"linear-gradient(135deg,#9B30FF,#FF2D78)":"rgba(255,255,255,0.05)",color:phone.length>=6?"white":"var(--mut)",fontSize:15,fontWeight:700,cursor:phone.length>=6?"pointer":"default",display:"flex",alignItems:"center",justifyContent:"center",gap:10}}>{loading?<Spinner/>:<><Phone size={16}/>Send Code</>}</button>
             {error&&<div style={{marginTop:10,fontSize:12,color:"#FF2D78",textAlign:"center"}}>{error}</div>}
           </>
         ) : (
           <>
             <div style={{fontSize:22,fontWeight:700,marginBottom:5}}>Enter the code</div>
-            <div style={{fontSize:13,color:"var(--mut)",marginBottom:22}}>Sent to +44 {phone}</div>
+            <div style={{fontSize:13,color:"var(--mut)",marginBottom:22}}>Sent to {country.dial} {phone}</div>
             <div style={{display:"flex",gap:8,marginBottom:16,justifyContent:"center"}}>
               {[0,1,2,3,4,5].map(i => (
-                <div key={i} style={{width:42,height:50,background:"var(--s1)",border:`1px solid ${otp[i]?"var(--p)":"var(--bdr)"}`,borderRadius:12,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,fontWeight:700,transition:"border-color 0.2s"}}>
-                  {otp[i]||""}
-                </div>
+                <div key={i} style={{width:42,height:50,background:"var(--s1)",border:`1px solid ${otp[i]?"var(--p)":"var(--bdr)"}`,borderRadius:12,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,fontWeight:700}}>{otp[i]||""}</div>
               ))}
             </div>
-            <input type="number" placeholder="6-digit code" value={otp}
-              onChange={e=>setOtp(e.target.value.slice(0,6))}
+            <input type="number" placeholder="6-digit code" value={otp} onChange={e=>setOtp(e.target.value.slice(0,6))}
               style={{width:"100%",background:"var(--s1)",border:"1px solid var(--bdr)",borderRadius:14,padding:"14px 16px",fontSize:16,color:"var(--txt)",outline:"none",marginBottom:14,textAlign:"center",letterSpacing:10}} />
-            <button onClick={verifyCode} style={{
-              width:"100%",padding:15,borderRadius:14,border:"none",
-              background:otp.length>=4?"linear-gradient(135deg,#9B30FF,#FF2D78)":"rgba(255,255,255,0.05)",
-              color:otp.length>=4?"white":"var(--mut)",
-              fontSize:15,fontWeight:700,cursor:otp.length>=4?"pointer":"default",
-              display:"flex",alignItems:"center",justifyContent:"center",gap:10,
-            }}>{loading?<Spinner/>:<><Check size={16}/>Verify</>}</button>
+            <button onClick={verifyCode} style={{width:"100%",padding:15,borderRadius:14,border:"none",background:otp.length>=4?"linear-gradient(135deg,#9B30FF,#FF2D78)":"rgba(255,255,255,0.05)",color:otp.length>=4?"white":"var(--mut)",fontSize:15,fontWeight:700,cursor:otp.length>=4?"pointer":"default",display:"flex",alignItems:"center",justifyContent:"center",gap:10}}>{loading?<Spinner/>:<><Check size={16}/>Verify</>}</button>
             {error&&<div style={{marginTop:10,fontSize:12,color:"#FF2D78",textAlign:"center"}}>{error}</div>}
             <div style={{textAlign:"center",marginTop:14}}>
               <button onClick={()=>setStep("phone")} style={{background:"none",border:"none",color:"var(--mut)",fontSize:13,cursor:"pointer"}}>← Change number</button>
@@ -505,8 +532,6 @@ function AuthScreen({ onAuth }) {
   );
 }
 
-// ─── ONBOARDING ───────────────────────────────────────────────────────────────
-function OnboardingScreen({ profile, setProfile, userId, onDone }) {
   const [step, setStep] = useState(0);
   const [draft, setDraft] = useState({...profile});
   const [saving, setSaving] = useState(false);
