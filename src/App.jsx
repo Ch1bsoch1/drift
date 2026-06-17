@@ -786,6 +786,20 @@ function MapTab({ clubs, rankings, friends, onSelect, onNotif, notifCount, total
 function ClubSheet({ club, myRank, rankCount, onToggle, onLikelihood, onClose }) {
   const isRanked = !!myRank;
   const canAdd = !isRanked && rankCount < 3;
+  const [goers, setGoers] = useState([]);
+
+  useEffect(() => {
+    if (!club) return;
+    const today = new Date().toISOString().split("T")[0];
+    supabase.from("picks")
+      .select("user_id, rank, likelihood, profiles(display_name, handle, city)")
+      .eq("club_id", club.id)
+      .eq("night_date", today)
+      .eq("rank", 1)
+      .order("likelihood", { ascending: false })
+      .limit(20)
+      .then(({ data }) => { if (data) setGoers(data); });
+  }, [club?.id]);
   return (
     <div style={{position:"absolute",inset:0,zIndex:100,display:"flex",flexDirection:"column",justifyContent:"flex-end"}}>
       <div onClick={onClose} style={{position:"absolute",inset:0,background:"rgba(0,0,0,0.55)",animation:"vs-fadeIn 0.2s"}}/>
@@ -829,6 +843,26 @@ function ClubSheet({ club, myRank, rankCount, onToggle, onLikelihood, onClose })
               <span style={{fontSize:13,fontWeight:900,color:likeCol(myRank.likelihood)}}>{myRank.likelihood}%</span>
             </div>
             <input type="range" min="0" max="100" step="1" value={myRank.likelihood} onChange={e=>onLikelihood(parseInt(e.target.value))}/>
+          </div>
+        )}
+        {goers.length > 0 && (
+          <div style={{marginTop:16}}>
+            <div style={{fontSize:10,color:"var(--mut)",textTransform:"uppercase",letterSpacing:1,marginBottom:10}}>
+              Who's going ({goers.length})
+            </div>
+            <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+              {goers.map(g => (
+                <div key={g.user_id} style={{display:"flex",alignItems:"center",gap:8,background:"var(--s2)",borderRadius:99,padding:"5px 12px 5px 5px"}}>
+                  <div style={{width:26,height:26,borderRadius:"50%",background:"linear-gradient(135deg,#9B30FF,#FF2D78)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,color:"white",flexShrink:0}}>
+                    {(g.profiles?.display_name||"?")[0].toUpperCase()}
+                  </div>
+                  <div>
+                    <div style={{fontSize:12,fontWeight:600,lineHeight:1.2}}>{g.profiles?.display_name||"User"}</div>
+                    <div style={{fontSize:10,color:likeCol(g.likelihood)}}>{g.likelihood}% likely</div>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         )}
         <button onClick={onToggle} disabled={!isRanked&&rankCount>=3} style={{
@@ -921,59 +955,118 @@ function PicksTab({ clubs, rankings, onToggle, onLikelihood }) {
 function FriendsTab({ friends, clubs }) {
   const going = friends.filter(f=>f.goingTo);
   const unsure = friends.filter(f=>!f.goingTo);
+  const [activeTab, setActiveTab] = useState("friends");
+  const [community, setCommunity] = useState([]);
+
+  useEffect(() => {
+    if (activeTab !== "community") return;
+    const today = new Date().toISOString().split("T")[0];
+    supabase.from("picks")
+      .select("user_id, club_id, likelihood, profiles(display_name, handle, city)")
+      .eq("night_date", today)
+      .eq("rank", 1)
+      .order("likelihood", { ascending: false })
+      .limit(50)
+      .then(({ data }) => { if (data) setCommunity(data); });
+  }, [activeTab]);
   return (
     <div style={{padding:"24px 20px"}}>
-      <div style={{marginBottom:20}}>
+      <div style={{marginBottom:16}}>
         <h1 style={{fontFamily:"'Bebas Neue',cursive",fontSize:34,letterSpacing:2}}>Friends</h1>
-        <p style={{fontSize:13,color:"var(--mut)",marginTop:3}}>{friends.length===0?"No friends yet":going.length+" going out · "+friends.length+" in your crew"}</p>
       </div>
-      <div style={{background:"linear-gradient(135deg,rgba(155,48,255,0.1),rgba(255,45,120,0.1))",border:"1px solid rgba(155,48,255,0.22)",borderRadius:14,padding:14,marginBottom:22,display:"flex",alignItems:"center",gap:12}}>
-        <UserPlus size={20} color="var(--p)"/>
-        <div style={{flex:1}}>
-          <div style={{fontSize:13,fontWeight:700}}>Invite friends</div>
-          <div style={{fontSize:11,color:"var(--mut)"}}>Share your invite link to grow your crew</div>
-        </div>
-        <button onClick={() => navigator.share?.({title:"Drift",text:"Join me on Drift 🎉",url:window.location.href})} style={{background:"linear-gradient(135deg,#9B30FF,#FF2D78)",border:"none",color:"white",fontSize:12,fontWeight:700,padding:"8px 14px",borderRadius:99,cursor:"pointer"}}>Share</button>
-      </div>
-      {friends.length === 0 && (
-        <div style={{textAlign:"center",padding:"40px 20px",color:"var(--mut)"}}>
-          <div style={{fontSize:40,marginBottom:12}}>👥</div>
-          <div style={{fontSize:15,fontWeight:700,marginBottom:6}}>No friends yet</div>
-          <div style={{fontSize:13}}>Share your invite link to add friends and see where they're heading tonight</div>
-        </div>
-      )}
-      {going.length > 0 && <>
-        <div style={{fontSize:10,color:"var(--mut)",textTransform:"uppercase",letterSpacing:1,marginBottom:12}}>Going out tonight</div>
-        {going.map(f=>{
-          const club=clubs.find(c=>c.id===f.goingTo);
-          return (
-            <div key={f.id} style={{background:"var(--s1)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:14,padding:"12px 14px",marginBottom:10,display:"flex",alignItems:"center",gap:12}}>
-              <div style={{width:46,height:46,borderRadius:14,flexShrink:0,background:"linear-gradient(135deg,#9B30FF,#FF2D78)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,fontWeight:700,color:"white",position:"relative"}}>
-                {(f.name||"?")[0].toUpperCase()}
-                {f.online&&<div style={{position:"absolute",bottom:1,right:1,width:10,height:10,borderRadius:"50%",background:"#00FF88",border:"2px solid var(--s1)"}}/>}
-              </div>
-              <div style={{flex:1,minWidth:0}}>
-                <div style={{fontSize:14,fontWeight:700}}>{f.name} <span style={{fontSize:11,color:"var(--mut)",fontWeight:400}}>{f.handle}</span></div>
-                <div style={{fontSize:11,color:"var(--mut)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>→ {club?.name||"somewhere"}{f.likelihood?` · ${f.likelihood}% likely`:""}</div>
-              </div>
-              <button style={{width:34,height:34,borderRadius:10,background:"rgba(155,48,255,0.12)",border:"1px solid rgba(155,48,255,0.2)",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer"}}><MessageCircle size={15} color="var(--p)"/></button>
-            </div>
-          );
-        })}
-      </>}
-      {unsure.length > 0 && <>
-        <div style={{fontSize:10,color:"var(--mut)",textTransform:"uppercase",letterSpacing:1,margin:"18px 0 12px"}}>Not sure yet</div>
-        {unsure.map(f=>(
-          <div key={f.id} style={{background:"var(--s1)",border:"1px solid rgba(255,255,255,0.05)",borderRadius:14,padding:"12px 14px",marginBottom:10,display:"flex",alignItems:"center",gap:12,opacity:0.65}}>
-            <div style={{width:46,height:46,borderRadius:14,flexShrink:0,background:"var(--s2)",border:"1px solid rgba(255,255,255,0.07)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,fontWeight:700,color:"var(--mut)"}}>{(f.name||"?")[0].toUpperCase()}</div>
-            <div style={{flex:1}}>
-              <div style={{fontSize:14,fontWeight:700}}>{f.name} <span style={{fontSize:11,color:"var(--mut)",fontWeight:400}}>{f.handle}</span></div>
-              <div style={{fontSize:11,color:"var(--mut)"}}>No plans yet tonight</div>
-            </div>
-            <button style={{width:34,height:34,borderRadius:10,background:"rgba(155,48,255,0.12)",border:"1px solid rgba(155,48,255,0.2)",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer"}}><MessageCircle size={15} color="var(--p)"/></button>
-          </div>
+
+      {/* Tab switcher */}
+      <div style={{display:"flex",gap:8,marginBottom:20,background:"var(--s1)",padding:4,borderRadius:12}}>
+        {["friends","community"].map(t=>(
+          <button key={t} onClick={()=>setActiveTab(t)} style={{
+            flex:1,padding:"8px 0",borderRadius:9,border:"none",
+            background:activeTab===t?"linear-gradient(135deg,#9B30FF,#FF2D78)":"transparent",
+            color:activeTab===t?"white":"var(--mut)",
+            fontSize:13,fontWeight:700,cursor:"pointer",transition:"all 0.2s",
+            textTransform:"capitalize",
+          }}>{t==="friends"?`Friends (${friends.length})`:"Community"}</button>
         ))}
-      </>}
+      </div>
+
+      {activeTab==="friends" ? (
+        <>
+          <div style={{background:"linear-gradient(135deg,rgba(155,48,255,0.1),rgba(255,45,120,0.1))",border:"1px solid rgba(155,48,255,0.22)",borderRadius:14,padding:14,marginBottom:22,display:"flex",alignItems:"center",gap:12}}>
+            <UserPlus size={20} color="var(--p)"/>
+            <div style={{flex:1}}>
+              <div style={{fontSize:13,fontWeight:700}}>Invite friends</div>
+              <div style={{fontSize:11,color:"var(--mut)"}}>Share your invite link to grow your crew</div>
+            </div>
+            <button onClick={()=>navigator.share?.({title:"Drift",text:"Join me on Drift 🎉",url:window.location.href})} style={{background:"linear-gradient(135deg,#9B30FF,#FF2D78)",border:"none",color:"white",fontSize:12,fontWeight:700,padding:"8px 14px",borderRadius:99,cursor:"pointer"}}>Share</button>
+          </div>
+          {friends.length===0 && (
+            <div style={{textAlign:"center",padding:"40px 20px",color:"var(--mut)"}}>
+              <div style={{fontSize:40,marginBottom:12}}>👥</div>
+              <div style={{fontSize:15,fontWeight:700,marginBottom:6}}>No friends yet</div>
+              <div style={{fontSize:13}}>Share your invite link to add friends and see where they're heading tonight</div>
+            </div>
+          )}
+          {going.length>0&&<>
+            <div style={{fontSize:10,color:"var(--mut)",textTransform:"uppercase",letterSpacing:1,marginBottom:12}}>Going out tonight</div>
+            {going.map(f=>{
+              const club=clubs.find(c=>c.id===f.goingTo);
+              return (
+                <div key={f.id} style={{background:"var(--s1)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:14,padding:"12px 14px",marginBottom:10,display:"flex",alignItems:"center",gap:12}}>
+                  <div style={{width:46,height:46,borderRadius:14,flexShrink:0,background:"linear-gradient(135deg,#9B30FF,#FF2D78)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,fontWeight:700,color:"white",position:"relative"}}>
+                    {(f.name||"?")[0].toUpperCase()}
+                    {f.online&&<div style={{position:"absolute",bottom:1,right:1,width:10,height:10,borderRadius:"50%",background:"#00FF88",border:"2px solid var(--s1)"}}/>}
+                  </div>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:14,fontWeight:700}}>{f.name} <span style={{fontSize:11,color:"var(--mut)",fontWeight:400}}>{f.handle}</span></div>
+                    <div style={{fontSize:11,color:"var(--mut)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>→ {club?.name||"somewhere"}{f.likelihood?` · ${f.likelihood}% likely`:""}</div>
+                  </div>
+                  <button style={{width:34,height:34,borderRadius:10,background:"rgba(155,48,255,0.12)",border:"1px solid rgba(155,48,255,0.2)",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer"}}><MessageCircle size={15} color="var(--p)"/></button>
+                </div>
+              );
+            })}
+          </>}
+          {unsure.length>0&&<>
+            <div style={{fontSize:10,color:"var(--mut)",textTransform:"uppercase",letterSpacing:1,margin:"18px 0 12px"}}>Not sure yet</div>
+            {unsure.map(f=>(
+              <div key={f.id} style={{background:"var(--s1)",border:"1px solid rgba(255,255,255,0.05)",borderRadius:14,padding:"12px 14px",marginBottom:10,display:"flex",alignItems:"center",gap:12,opacity:0.65}}>
+                <div style={{width:46,height:46,borderRadius:14,flexShrink:0,background:"var(--s2)",border:"1px solid rgba(255,255,255,0.07)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,fontWeight:700,color:"var(--mut)"}}>{(f.name||"?")[0].toUpperCase()}</div>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:14,fontWeight:700}}>{f.name} <span style={{fontSize:11,color:"var(--mut)",fontWeight:400}}>{f.handle}</span></div>
+                  <div style={{fontSize:11,color:"var(--mut)"}}>No plans yet tonight</div>
+                </div>
+                <button style={{width:34,height:34,borderRadius:10,background:"rgba(155,48,255,0.12)",border:"1px solid rgba(155,48,255,0.2)",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer"}}><MessageCircle size={15} color="var(--p)"/></button>
+              </div>
+            ))}
+          </>}
+        </>
+      ) : (
+        <>
+          <div style={{fontSize:13,color:"var(--mut)",marginBottom:16}}>Everyone going out in your city tonight</div>
+          {community.length===0 && (
+            <div style={{textAlign:"center",padding:"40px 20px",color:"var(--mut)"}}>
+              <div style={{fontSize:40,marginBottom:12}}>🌙</div>
+              <div style={{fontSize:15,fontWeight:700,marginBottom:6}}>No picks yet tonight</div>
+              <div style={{fontSize:13}}>Be the first to pick your club for tonight</div>
+            </div>
+          )}
+          {community.map(g => {
+            const club = clubs.find(c=>c.id===g.club_id);
+            return (
+              <div key={g.user_id} style={{background:"var(--s1)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:14,padding:"12px 14px",marginBottom:10,display:"flex",alignItems:"center",gap:12}}>
+                <div style={{width:46,height:46,borderRadius:14,flexShrink:0,background:"linear-gradient(135deg,#9B30FF44,#FF2D7844)",border:"1px solid rgba(155,48,255,0.3)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,fontWeight:700,color:"white"}}>
+                  {(g.profiles?.display_name||"?")[0].toUpperCase()}
+                </div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:14,fontWeight:700}}>{g.profiles?.display_name||"User"} <span style={{fontSize:11,color:"var(--mut)",fontWeight:400}}>{g.profiles?.handle||""}</span></div>
+                  <div style={{fontSize:11,color:"var(--mut)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>→ {club?.name||"somewhere"} · {g.likelihood}% likely</div>
+                </div>
+                <div style={{flexShrink:0,textAlign:"right"}}>
+                  <div style={{width:8,height:8,borderRadius:"50%",background:heatCol(club?.heat||50),boxShadow:`0 0 6px ${heatCol(club?.heat||50)}`,margin:"0 auto"}}/>
+                </div>
+              </div>
+            );
+          })}
+        </>
+      )}
     </div>
   );
 }
