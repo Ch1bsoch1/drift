@@ -138,8 +138,9 @@ const Pill = ({children,active,onClick}) => (
 
 // ─── LEAFLET CLUB ICON ────────────────────────────────────────────────────────
 const mkClubIcon = (L, club, ranked) => {
-  const col = heatCol(club.heat);
-  const sz = Math.round(10 + club.heat * 0.1);
+  const heat = Math.max(club.heat || 0, 35);
+  const col = heatCol(heat);
+  const sz = Math.round(10 + heat * 0.1);
   const badge = ranked
     ? `<div style="position:absolute;top:-9px;right:-9px;background:${ranked.rank===1?"#FFD700":ranked.rank===2?"#C0C0C0":"#CD7F32"};color:#000;font-size:7px;font-weight:900;padding:1px 5px;border-radius:99px;z-index:2;">#${ranked.rank}</div>`
     : "";
@@ -237,7 +238,7 @@ export default function App() {
             desc: c.description,
             voters: c.club_stats?.voter_count ?? Math.floor(Math.random()*400+80),
             likelihood: Math.round(c.club_stats?.avg_likelihood ?? 55),
-            heat: c.club_stats?.heat_score ?? Math.floor(Math.random()*35+40),
+            heat: c.club_stats?.heat_score ?? 45,
           })));
         }
       });
@@ -401,7 +402,7 @@ export default function App() {
           onNotif={() => setNotifOpen(true)} notifCount={notifications.filter(n=>!n.read).length} totalVoters={totalVoters} />
       </div>
       {tab==="picks" && <div style={{position:"absolute",inset:0,bottom:70,overflowY:"auto"}}><PicksTab clubs={clubs} rankings={rankings} onToggle={toggleRank} onLikelihood={updateLikelihood} /></div>}
-      {tab==="friends" && <div style={{position:"absolute",inset:0,bottom:70,overflowY:"auto"}}><FriendsTab friends={friends} clubs={clubs} /></div>}
+      {tab==="friends" && <div style={{position:"absolute",inset:0,bottom:70,overflowY:"auto"}}><FriendsTab friends={friends} clubs={clubs} userId={user?.id} /></div>}
       {tab==="profile" && <div style={{position:"absolute",inset:0,bottom:70,overflowY:"auto"}}><ProfileTab profile={profile} setProfile={saveProfile} /></div>}
 
       {sheetOpen && selected && (
@@ -952,57 +953,104 @@ function PicksTab({ clubs, rankings, onToggle, onLikelihood }) {
 }
 
 // ─── FRIENDS TAB ──────────────────────────────────────────────────────────────
-function FriendsTab({ friends, clubs }) {
+function FriendsTab({ friends, clubs, userId }) {
   const going = friends.filter(f=>f.goingTo);
   const unsure = friends.filter(f=>!f.goingTo);
   const [activeTab, setActiveTab] = useState("friends");
   const [community, setCommunity] = useState([]);
+  const [searchQ, setSearchQ] = useState("");
+  const [searchResults, setSearchResults] = useState([]);
+  const [searching, setSearching] = useState(false);
+  const [requestSent, setRequestSent] = useState({});
 
   useEffect(() => {
     if (activeTab !== "community") return;
     const today = new Date().toISOString().split("T")[0];
     supabase.from("picks")
       .select("user_id, club_id, likelihood, profiles(display_name, handle, city)")
-      .eq("night_date", today)
-      .eq("rank", 1)
-      .order("likelihood", { ascending: false })
-      .limit(50)
-      .then(({ data }) => { if (data) setCommunity(data); });
+      .eq("night_date", today).eq("rank", 1)
+      .order("likelihood", {ascending:false}).limit(50)
+      .then(({data}) => { if (data) setCommunity(data); });
   }, [activeTab]);
+
+  const searchUsers = async (q) => {
+    setSearchQ(q);
+    if (q.length < 2) { setSearchResults([]); return; }
+    setSearching(true);
+    const {data} = await supabase.from("profiles")
+      .select("id, display_name, handle, city")
+      .or(`handle.ilike.%${q}%,display_name.ilike.%${q}%`)
+      .neq("id", userId).limit(8);
+    setSearchResults(data||[]);
+    setSearching(false);
+  };
+
+  const sendRequest = async (toId) => {
+    const [a,b] = [userId,toId].sort();
+    await supabase.from("friendships").upsert({user_a:a,user_b:b,status:"pending"},{onConflict:"user_a,user_b"});
+    setRequestSent(prev=>({...prev,[toId]:true}));
+  };
+
+  const friendIds = friends.map(f=>f.id);
+
   return (
     <div style={{padding:"24px 20px"}}>
       <div style={{marginBottom:16}}>
         <h1 style={{fontFamily:"'Bebas Neue',cursive",fontSize:34,letterSpacing:2}}>Friends</h1>
       </div>
-
-      {/* Tab switcher */}
-      <div style={{display:"flex",gap:8,marginBottom:20,background:"var(--s1)",padding:4,borderRadius:12}}>
+      <div style={{display:"flex",gap:8,marginBottom:16,background:"var(--s1)",padding:4,borderRadius:12}}>
         {["friends","community"].map(t=>(
-          <button key={t} onClick={()=>setActiveTab(t)} style={{
-            flex:1,padding:"8px 0",borderRadius:9,border:"none",
-            background:activeTab===t?"linear-gradient(135deg,#9B30FF,#FF2D78)":"transparent",
-            color:activeTab===t?"white":"var(--mut)",
-            fontSize:13,fontWeight:700,cursor:"pointer",transition:"all 0.2s",
-            textTransform:"capitalize",
-          }}>{t==="friends"?`Friends (${friends.length})`:"Community"}</button>
+          <button key={t} onClick={()=>setActiveTab(t)} style={{flex:1,padding:"8px 0",borderRadius:9,border:"none",background:activeTab===t?"linear-gradient(135deg,#9B30FF,#FF2D78)":"transparent",color:activeTab===t?"white":"var(--mut)",fontSize:13,fontWeight:700,cursor:"pointer",transition:"all 0.2s"}}>
+            {t==="friends"?`Friends (${friends.length})`:"Community"}
+          </button>
         ))}
       </div>
 
       {activeTab==="friends" ? (
         <>
-          <div style={{background:"linear-gradient(135deg,rgba(155,48,255,0.1),rgba(255,45,120,0.1))",border:"1px solid rgba(155,48,255,0.22)",borderRadius:14,padding:14,marginBottom:22,display:"flex",alignItems:"center",gap:12}}>
+          <div style={{marginBottom:12}}>
+            <div style={{background:"var(--s1)",border:"1px solid var(--bdr)",borderRadius:14,padding:"11px 16px",display:"flex",alignItems:"center",gap:10}}>
+              <Search size={15} color="var(--mut)"/>
+              <input value={searchQ} onChange={e=>searchUsers(e.target.value)} placeholder="Search by name or @handle…"
+                style={{flex:1,background:"none",border:"none",outline:"none",fontSize:14,color:"var(--txt)",caretColor:"var(--p)"}}/>
+              {searching&&<Spinner/>}
+            </div>
+            {searchResults.length>0&&(
+              <div style={{marginTop:6,background:"var(--s1)",border:"1px solid var(--bdr)",borderRadius:14,overflow:"hidden"}}>
+                {searchResults.map(u=>{
+                  const isFriend=friendIds.includes(u.id);
+                  const sent=requestSent[u.id];
+                  return (
+                    <div key={u.id} style={{display:"flex",alignItems:"center",gap:12,padding:"11px 14px",borderBottom:"1px solid rgba(255,255,255,0.05)"}}>
+                      <div style={{width:38,height:38,borderRadius:12,flexShrink:0,background:"linear-gradient(135deg,#9B30FF44,#FF2D7844)",border:"1px solid rgba(155,48,255,0.3)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,fontWeight:700,color:"white"}}>
+                        {(u.display_name||"?")[0].toUpperCase()}
+                      </div>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:14,fontWeight:600}}>{u.display_name}</div>
+                        <div style={{fontSize:11,color:"var(--mut)"}}>{u.handle}{u.city?` · ${u.city}`:""}</div>
+                      </div>
+                      {isFriend?<span style={{fontSize:11,color:"#00FF88",fontWeight:700}}>Friends ✓</span>
+                      :sent?<span style={{fontSize:11,color:"var(--mut)",fontWeight:700}}>Sent ✓</span>
+                      :<button onClick={()=>sendRequest(u.id)} style={{background:"linear-gradient(135deg,#9B30FF,#FF2D78)",border:"none",color:"white",fontSize:12,fontWeight:700,padding:"6px 14px",borderRadius:99,cursor:"pointer"}}>Add</button>}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+          <div style={{background:"linear-gradient(135deg,rgba(155,48,255,0.1),rgba(255,45,120,0.1))",border:"1px solid rgba(155,48,255,0.22)",borderRadius:14,padding:14,marginBottom:16,display:"flex",alignItems:"center",gap:12}}>
             <UserPlus size={20} color="var(--p)"/>
             <div style={{flex:1}}>
               <div style={{fontSize:13,fontWeight:700}}>Invite friends</div>
-              <div style={{fontSize:11,color:"var(--mut)"}}>Share your invite link to grow your crew</div>
+              <div style={{fontSize:11,color:"var(--mut)"}}>Share your link to grow your crew</div>
             </div>
             <button onClick={()=>navigator.share?.({title:"Drift",text:"Join me on Drift 🎉",url:window.location.href})} style={{background:"linear-gradient(135deg,#9B30FF,#FF2D78)",border:"none",color:"white",fontSize:12,fontWeight:700,padding:"8px 14px",borderRadius:99,cursor:"pointer"}}>Share</button>
           </div>
-          {friends.length===0 && (
-            <div style={{textAlign:"center",padding:"40px 20px",color:"var(--mut)"}}>
+          {friends.length===0&&!searchQ&&(
+            <div style={{textAlign:"center",padding:"32px 20px",color:"var(--mut)"}}>
               <div style={{fontSize:40,marginBottom:12}}>👥</div>
               <div style={{fontSize:15,fontWeight:700,marginBottom:6}}>No friends yet</div>
-              <div style={{fontSize:13}}>Share your invite link to add friends and see where they're heading tonight</div>
+              <div style={{fontSize:13}}>Search for people above or share your invite link</div>
             </div>
           )}
           {going.length>0&&<>
@@ -1011,10 +1059,7 @@ function FriendsTab({ friends, clubs }) {
               const club=clubs.find(c=>c.id===f.goingTo);
               return (
                 <div key={f.id} style={{background:"var(--s1)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:14,padding:"12px 14px",marginBottom:10,display:"flex",alignItems:"center",gap:12}}>
-                  <div style={{width:46,height:46,borderRadius:14,flexShrink:0,background:"linear-gradient(135deg,#9B30FF,#FF2D78)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,fontWeight:700,color:"white",position:"relative"}}>
-                    {(f.name||"?")[0].toUpperCase()}
-                    {f.online&&<div style={{position:"absolute",bottom:1,right:1,width:10,height:10,borderRadius:"50%",background:"#00FF88",border:"2px solid var(--s1)"}}/>}
-                  </div>
+                  <div style={{width:46,height:46,borderRadius:14,flexShrink:0,background:"linear-gradient(135deg,#9B30FF,#FF2D78)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,fontWeight:700,color:"white"}}>{(f.name||"?")[0].toUpperCase()}</div>
                   <div style={{flex:1,minWidth:0}}>
                     <div style={{fontSize:14,fontWeight:700}}>{f.name} <span style={{fontSize:11,color:"var(--mut)",fontWeight:400}}>{f.handle}</span></div>
                     <div style={{fontSize:11,color:"var(--mut)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>→ {club?.name||"somewhere"}{f.likelihood?` · ${f.likelihood}% likely`:""}</div>
@@ -1038,18 +1083,20 @@ function FriendsTab({ friends, clubs }) {
             ))}
           </>}
         </>
-      ) : (
+      ):(
         <>
-          <div style={{fontSize:13,color:"var(--mut)",marginBottom:16}}>Everyone going out in your city tonight</div>
-          {community.length===0 && (
+          <div style={{fontSize:13,color:"var(--mut)",marginBottom:16}}>Everyone going out tonight</div>
+          {community.length===0&&(
             <div style={{textAlign:"center",padding:"40px 20px",color:"var(--mut)"}}>
               <div style={{fontSize:40,marginBottom:12}}>🌙</div>
               <div style={{fontSize:15,fontWeight:700,marginBottom:6}}>No picks yet tonight</div>
               <div style={{fontSize:13}}>Be the first to pick your club for tonight</div>
             </div>
           )}
-          {community.map(g => {
-            const club = clubs.find(c=>c.id===g.club_id);
+          {community.map(g=>{
+            const club=clubs.find(c=>c.id===g.club_id);
+            const isFriend=friendIds.includes(g.user_id);
+            const sent=requestSent[g.user_id];
             return (
               <div key={g.user_id} style={{background:"var(--s1)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:14,padding:"12px 14px",marginBottom:10,display:"flex",alignItems:"center",gap:12}}>
                 <div style={{width:46,height:46,borderRadius:14,flexShrink:0,background:"linear-gradient(135deg,#9B30FF44,#FF2D7844)",border:"1px solid rgba(155,48,255,0.3)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,fontWeight:700,color:"white"}}>
@@ -1059,9 +1106,11 @@ function FriendsTab({ friends, clubs }) {
                   <div style={{fontSize:14,fontWeight:700}}>{g.profiles?.display_name||"User"} <span style={{fontSize:11,color:"var(--mut)",fontWeight:400}}>{g.profiles?.handle||""}</span></div>
                   <div style={{fontSize:11,color:"var(--mut)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>→ {club?.name||"somewhere"} · {g.likelihood}% likely</div>
                 </div>
-                <div style={{flexShrink:0,textAlign:"right"}}>
-                  <div style={{width:8,height:8,borderRadius:"50%",background:heatCol(club?.heat||50),boxShadow:`0 0 6px ${heatCol(club?.heat||50)}`,margin:"0 auto"}}/>
-                </div>
+                {g.user_id!==userId&&(isFriend?
+                  <span style={{fontSize:11,color:"#00FF88",fontWeight:700}}>Friends</span>:
+                  sent?<span style={{fontSize:11,color:"var(--mut)",fontWeight:700}}>Sent ✓</span>:
+                  <button onClick={()=>sendRequest(g.user_id)} style={{background:"rgba(155,48,255,0.15)",border:"1px solid rgba(155,48,255,0.3)",color:"var(--p)",fontSize:12,fontWeight:700,padding:"6px 12px",borderRadius:99,cursor:"pointer"}}>Add</button>
+                )}
               </div>
             );
           })}
@@ -1071,7 +1120,6 @@ function FriendsTab({ friends, clubs }) {
   );
 }
 
-// ─── PROFILE TAB ──────────────────────────────────────────────────────────────
 function ProfileTab({ profile, setProfile }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState({...profile});
