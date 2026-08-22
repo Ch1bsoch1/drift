@@ -357,7 +357,7 @@ export default function App() {
       </div>
       {tab==="picks" && <div style={{position:"absolute",inset:0,bottom:70,overflowY:"auto"}}><PicksTab clubs={clubs} rankings={rankings} onToggle={toggleRank} onLikelihood={updateLikelihood} /></div>}
       {tab==="friends" && <div style={{position:"absolute",inset:0,bottom:70,overflowY:"auto"}}><FriendsTab friends={friends} clubs={clubs} userId={user?.id} /></div>}
-      {tab==="profile" && <div style={{position:"absolute",inset:0,bottom:70,overflowY:"auto"}}><ProfileTab profile={profile} setProfile={saveProfile} /></div>}
+      {tab==="profile" && <div style={{position:"absolute",inset:0,bottom:70,overflowY:"auto"}}><ProfileTab profile={profile} setProfile={saveProfile} onLogout={async () => { await supabase.auth.signOut(); setUser(null); setOnboarded(false); setRankings([]); setFriends([]); setNotifications([]); setTab("map"); }} /></div>}
 
       {sheetOpen && selected && (
         <ClubSheet
@@ -1075,7 +1075,7 @@ function FriendsTab({ friends, clubs, userId }) {
   );
 }
 
-function ProfileTab({ profile, setProfile }) {
+function ProfileTab({ profile, setProfile, onLogout }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState({...profile});
   const save = () => { setProfile({...draft}); setEditing(false); };
@@ -1141,6 +1141,13 @@ function ProfileTab({ profile, setProfile }) {
           <div style={{display:"flex",gap:8,marginBottom:7}}><Shield size={13} color="var(--p)"/><span style={{fontSize:11,fontWeight:700,color:"var(--p)"}}>Data & Privacy</span></div>
           <p style={{fontSize:11,color:"var(--mut)",lineHeight:1.6}}>All demographic data is anonymised and aggregated before being used in crowd analytics. It is never linked to your personal identity and never sold to advertisers or third parties. You can delete your account and all data at any time.</p>
         </div>
+        <button onClick={onLogout} style={{
+          width:"100%",marginTop:12,padding:14,borderRadius:14,border:"1px solid rgba(255,45,120,0.25)",
+          background:"rgba(255,45,120,0.08)",color:"#FF2D78",
+          fontSize:14,fontWeight:700,cursor:"pointer",
+        }}>
+          Log Out
+        </button>
       </div>
     </div>
   );
