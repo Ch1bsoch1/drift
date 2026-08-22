@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import {
-  MapPin, Users, User, X, Flame, Search, Navigation, Star, Sliders,
-  Shield, Bell, Phone, MessageCircle, Check, UserPlus, Zap, Music
+  MapPin, Users, User, X, Flame, Search, Navigation, Star,
+  Shield, Bell, Phone, MessageCircle, Check, UserPlus
 } from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
 
@@ -71,52 +71,6 @@ const loadLeaflet = () => {
 };
 
 // ─── DATA ────────────────────────────────────────────────────────────────────
-const CLUBS_SEED = [
-  {id:1,name:"Fabric",short:"FAB",area:"Farringdon",city:"London",country:"UK",lat:51.5202,lng:-0.1021,heat:94,voters:1247,likelihood:82,genre:"Techno · House",cap:1500,desc:"Three-room superclub in a former cold store. London's defining techno temple."},
-  {id:2,name:"Ministry of Sound",short:"MOS",area:"Elephant & Castle",city:"London",country:"UK",lat:51.4983,lng:-0.1047,heat:89,voters:1803,likelihood:86,genre:"House · Dance",cap:2000,desc:"World-famous venue with one of the finest sound systems ever built."},
-  {id:3,name:"XOYO",short:"XYO",area:"Islington",city:"London",country:"UK",lat:51.5365,lng:-0.0942,heat:73,voters:523,likelihood:64,genre:"Mixed · Electronic",cap:800,desc:"Beloved East London venue with eclectic bookings and intimate sweaty atmosphere."},
-  {id:4,name:"EGG London",short:"EGG",area:"King's Cross",city:"London",country:"UK",lat:51.5390,lng:-0.1165,heat:67,voters:412,likelihood:61,genre:"Techno · Rave",cap:800,desc:"Underground warehouse with a stunning outdoor terrace and legendary all-dayers."},
-  {id:5,name:"Printworks",short:"PWK",area:"Surrey Quays",city:"London",country:"UK",lat:51.4933,lng:-0.0478,heat:81,voters:934,likelihood:74,genre:"Electronic · Art",cap:5000,desc:"Converted printing factory. The press halls are truly one of a kind."},
-  {id:6,name:"Fold",short:"FLD",area:"Canning Town",city:"London",country:"UK",lat:51.5033,lng:-0.0097,heat:58,voters:298,likelihood:52,genre:"Techno · Dark",cap:600,desc:"Brutalist East London warehouse. Serious techno, no photos policy."},
-  {id:7,name:"Heaven",short:"HVN",area:"Charing Cross",city:"London",country:"UK",lat:51.5074,lng:-0.1229,heat:85,voters:956,likelihood:78,genre:"LGBT+ · Pop",cap:1200,desc:"Iconic LGBTQ+ nightclub under the Arches since 1979. A London institution."},
-  {id:8,name:"Village Underground",short:"VLU",area:"Shoreditch",city:"London",country:"UK",lat:51.5245,lng:-0.0791,heat:76,voters:498,likelihood:70,genre:"House · Indie",cap:800,desc:"Brilliant venue in converted Tube cars. Shoreditch indie meets electronic."},
-  {id:9,name:"Corsica Studios",short:"COR",area:"Elephant & Castle",city:"London",country:"UK",lat:51.4952,lng:-0.1004,heat:63,voters:278,likelihood:57,genre:"Electronic",cap:600,desc:"Intimate two rooms with some of London's finest underground bookings."},
-  {id:10,name:"E1 London",short:"E1L",area:"Whitechapel",city:"London",country:"UK",lat:51.5163,lng:-0.0680,heat:70,voters:387,likelihood:66,genre:"Grime · Bass",cap:900,desc:"East London venue blending art, culture and underground music beautifully."},
-  {id:11,name:"Warehouse Project",short:"WHP",area:"Depot Mayfield",city:"Manchester",country:"UK",lat:53.4700,lng:-2.2279,heat:88,voters:1102,likelihood:80,genre:"House · Techno",cap:10000,desc:"Legendary seasonal series inside a vast Victorian railway depot."},
-  {id:12,name:"Sankeys",short:"SNK",area:"Ancoats",city:"Manchester",country:"UK",lat:53.4814,lng:-2.2278,heat:72,voters:445,likelihood:65,genre:"Techno · Trance",cap:1200,desc:"Storied Manchester institution with decades of techno and trance history."},
-  {id:13,name:"Berghain",short:"BRG",area:"Friedrichshain",city:"Berlin",country:"DE",lat:52.5117,lng:13.4418,heat:98,voters:4213,likelihood:91,genre:"Hard Techno",cap:1500,desc:"The world's most legendary nightclub. 72-hour weekends in a power station."},
-  {id:14,name:"Tresor",short:"TRS",area:"Mitte",city:"Berlin",country:"DE",lat:52.5118,lng:13.4034,heat:83,voters:876,likelihood:77,genre:"Techno",cap:800,desc:"The vault. Detroit techno's spiritual European home since 1991."},
-  {id:15,name:"Pacha Ibiza",short:"PCH",area:"Port d'Eivissa",city:"Ibiza",country:"ES",lat:38.9075,lng:1.4346,heat:91,voters:2134,likelihood:84,genre:"House · Commercial",cap:3000,desc:"The original Ibiza superclub. Two cherries. Iconic since 1973."},
-  {id:16,name:"Ushuaia",short:"USH",area:"Playa d'en Bossa",city:"Ibiza",country:"ES",lat:38.8855,lng:1.3942,heat:87,voters:1567,likelihood:80,genre:"House · EDM",cap:5000,desc:"Open-air mega venue with world-class pool parties and production."},
-  {id:17,name:"Avant Gardner",short:"AVG",area:"E. Williamsburg",city:"New York",country:"US",lat:40.7065,lng:-73.9399,heat:83,voters:876,likelihood:75,genre:"Electronic · Rave",cap:5000,desc:"NYC's premier rave complex. The Great Hall is world class."},
-  {id:18,name:"Basement NYC",short:"BSM",area:"Lower East Side",city:"New York",country:"US",lat:40.7207,lng:-73.9865,heat:77,voters:542,likelihood:70,genre:"Techno · House",cap:400,desc:"Intimate underground techno room on the Lower East Side."},
-  {id:19,name:"Womb",short:"WMB",area:"Shibuya",city:"Tokyo",country:"JP",lat:35.6588,lng:139.6957,heat:80,voters:734,likelihood:73,genre:"House · Electronic",cap:1000,desc:"Tokyo's iconic four-floor club with a legendary mirror ball."},
-  {id:20,name:"Ageha",short:"AGH",area:"Shin-Kiba",city:"Tokyo",country:"JP",lat:35.6432,lng:139.8297,heat:75,voters:623,likelihood:68,genre:"Trance · House",cap:4000,desc:"Massive outdoor complex on Tokyo Bay. Island vibes, serious sound."},
-  {id:21,name:"Shelter Amsterdam",short:"SHT",area:"Noord",city:"Amsterdam",country:"NL",lat:52.3905,lng:4.8614,heat:71,voters:445,likelihood:63,genre:"Techno",cap:600,desc:"Hidden under the EYE Film Institute. Amsterdam's best-kept secret."},
-  {id:22,name:"Paradiso",short:"PRD",area:"Leidseplein",city:"Amsterdam",country:"NL",lat:52.3615,lng:4.8826,heat:69,voters:398,likelihood:62,genre:"Mixed",cap:1500,desc:"Legendary concert hall and club in a converted church since 1968."},
-  {id:23,name:"Razzmatazz",short:"RZZ",area:"El Poblenou",city:"Barcelona",country:"ES",lat:41.3980,lng:2.1914,heat:78,voters:567,likelihood:71,genre:"Electronic · Mixed",cap:4500,desc:"Five rooms, five genres. Barcelona's iconic warehouse complex."},
-];
-
-const FRIENDS_SEED = [
-  {id:1,name:"Sam",handle:"@sam.ldn",age:25,goingTo:1,likelihood:90,online:true},
-  {id:2,name:"Maya",handle:"@maya.nts",age:23,goingTo:2,likelihood:75,online:true},
-  {id:3,name:"Kai",handle:"@kai.raves",age:27,goingTo:7,likelihood:85,online:true},
-  {id:4,name:"Priya",handle:"@priya.sounds",age:24,goingTo:1,likelihood:70,online:false},
-  {id:5,name:"Leo",handle:"@leo.techno",age:26,goingTo:5,likelihood:95,online:true},
-  {id:6,name:"Zoe",handle:"@zoe.after",age:22,goingTo:null,likelihood:50,online:false},
-  {id:7,name:"Tom",handle:"@tom.ldn",age:29,goingTo:3,likelihood:80,online:true},
-  {id:8,name:"Nia",handle:"@nia.house",age:24,goingTo:2,likelihood:88,online:true},
-];
-
-const NOTIFS_SEED = [
-  {id:1,text:"Sam is heading to Fabric tonight",time:"2m",icon:"👤"},
-  {id:2,text:"Fabric just hit 1,247 voters — it's ON FIRE",time:"5m",icon:"🔥"},
-  {id:3,text:"Maya and Nia both picked Ministry of Sound",time:"12m",icon:"👥"},
-  {id:4,text:"Razzmatazz added to the global map",time:"1h",icon:"📍"},
-  {id:5,text:"Your pick Fabric is the #1 spot tonight",time:"2h",icon:"⚡"},
-  {id:6,text:"Leo set his likelihood for Printworks to 95%",time:"3h",icon:"📊"},
-];
-
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
 const heatCol = h => h>=88?"#FF2222":h>=75?"#FF7700":h>=60?"#9B30FF":"#00B4D8";
 const likeCol = l => l>=80?"#00FF88":l>=65?"#88FF00":l>=50?"#FFD700":"#FF7700";
@@ -236,8 +190,8 @@ export default function App() {
             short: c.short_code,
             cap: c.capacity,
             desc: c.description,
-            voters: c.club_stats?.voter_count ?? Math.floor(Math.random()*400+80),
-            likelihood: Math.round(c.club_stats?.avg_likelihood ?? 55),
+            voters: c.club_stats?.voter_count ?? 0,
+            likelihood: Math.round(c.club_stats?.avg_likelihood ?? 50),
             heat: c.club_stats?.heat_score ?? 45,
           })));
         }
@@ -533,6 +487,7 @@ function AuthScreen({ onAuth }) {
   );
 }
 
+function OnboardingScreen({ profile, setProfile, userId, onDone }) {
   const [step, setStep] = useState(0);
   const [draft, setDraft] = useState({...profile});
   const [saving, setSaving] = useState(false);
@@ -767,7 +722,7 @@ function MapTab({ clubs, rankings, friends, onSelect, onNotif, notifCount, total
                   <div style={{width:7,height:7,borderRadius:"50%",background:heatCol(c.heat),boxShadow:`0 0 6px ${heatCol(c.heat)}`}}/>
                   <span style={{fontSize:11,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name}</span>
                 </div>
-                <span style={{fontSize:9,color:"var(--mut)"}}>{c.city} · {c.voters.toLocaleString()}</span>
+                <span style={{fontSize:9,color:"var(--mut)"}}>{c.city} · {(c.voters||0).toLocaleString()}</span>
                 <div style={{display:"flex",alignItems:"center",gap:5}}>
                   <div style={{flex:1,height:3,background:"rgba(255,255,255,0.07)",borderRadius:2}}>
                     <div style={{width:`${c.likelihood}%`,height:"100%",background:likeCol(c.likelihood),borderRadius:2,transition:"width 1s"}}/>
@@ -817,11 +772,11 @@ function ClubSheet({ club, myRank, rankCount, onToggle, onLikelihood, onClose })
         <div style={{display:"flex",gap:8,marginTop:12,flexWrap:"wrap"}}>
           <span style={{background:`${heatCol(club.heat)}22`,border:`1px solid ${heatCol(club.heat)}44`,color:heatCol(club.heat),fontSize:10,fontWeight:900,padding:"4px 10px",borderRadius:99}}>{heatLabel(club.heat)}</span>
           <span style={{fontSize:11,color:"var(--mut)"}}>{club.genre}</span>
-          <span style={{fontSize:11,color:"var(--mut)"}}>Cap. {club.cap.toLocaleString()}</span>
+          {club.cap && <span style={{fontSize:11,color:"var(--mut)"}}>Cap. {club.cap.toLocaleString()}</span>}
         </div>
         <p style={{marginTop:12,fontSize:13,color:"var(--mut)",lineHeight:1.55}}>{club.desc}</p>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginTop:16}}>
-          {[{l:"Voting",v:club.voters.toLocaleString(),c:heatCol(club.heat)},{l:"Going %",v:`${club.likelihood}%`,c:likeCol(club.likelihood)},{l:"Heat",v:`${club.heat}/100`,c:"#FF7700"}].map(s=>(
+          {[{l:"Voting",v:(club.voters||0).toLocaleString(),c:heatCol(club.heat)},{l:"Going %",v:`${club.likelihood||0}%`,c:likeCol(club.likelihood||0)},{l:"Heat",v:`${club.heat||0}/100`,c:"#FF7700"}].map(s=>(
             <div key={s.l} style={{background:"var(--s2)",borderRadius:12,padding:"12px 10px",textAlign:"center"}}>
               <div style={{fontSize:20,fontWeight:900,color:s.c,fontFamily:"'Bebas Neue',cursive"}}>{s.v}</div>
               <div style={{fontSize:9,color:"var(--mut)",textTransform:"uppercase",letterSpacing:0.4,marginTop:3}}>{s.l}</div>
@@ -939,7 +894,7 @@ function PicksTab({ clubs, rankings, onToggle, onLikelihood }) {
           <div style={{width:7,height:7,borderRadius:"50%",background:heatCol(c.heat),boxShadow:`0 0 6px ${heatCol(c.heat)}`,flexShrink:0}}/>
           <div style={{flex:1,minWidth:0}}>
             <div style={{fontSize:14,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name}</div>
-            <div style={{fontSize:11,color:"var(--mut)"}}>{c.city} · {c.voters.toLocaleString()} voting</div>
+            <div style={{fontSize:11,color:"var(--mut)"}}>{c.city} · {(c.voters||0).toLocaleString()} voting</div>
           </div>
           <div style={{textAlign:"right",flexShrink:0}}>
             <div style={{fontSize:13,fontWeight:800,color:likeCol(c.likelihood)}}>{c.likelihood}%</div>
@@ -1137,7 +1092,7 @@ function ProfileTab({ profile, setProfile }) {
   return (
     <div style={{padding:"0 0 24px"}}>
       <div style={{background:"linear-gradient(180deg,rgba(80,0,120,0.55) 0%,var(--bg) 100%)",padding:"44px 20px 24px",textAlign:"center",borderBottom:"1px solid var(--bdr)"}}>
-        <div style={{width:82,height:82,borderRadius:26,margin:"0 auto 12px",background:"linear-gradient(135deg,#9B30FF,#FF2D78)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:36,fontWeight:900,color:"white",fontFamily:"'Bebas Neue',cursive",boxShadow:"0 0 40px rgba(155,48,255,0.4)"}}>{profile.name[0]}</div>
+        <div style={{width:82,height:82,borderRadius:26,margin:"0 auto 12px",background:"linear-gradient(135deg,#9B30FF,#FF2D78)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:36,fontWeight:900,color:"white",fontFamily:"'Bebas Neue',cursive",boxShadow:"0 0 40px rgba(155,48,255,0.4)"}}>{(profile.name||"?")[0].toUpperCase()}</div>
         <div style={{fontFamily:"'Bebas Neue',cursive",fontSize:26,letterSpacing:1}}>{profile.name}</div>
         <div style={{fontSize:13,color:"var(--mut)",marginTop:2}}>{profile.handle} · since {profile.joined}</div>
         <div style={{display:"flex",justifyContent:"center",gap:28,marginTop:20}}>
@@ -1177,7 +1132,7 @@ function ProfileTab({ profile, setProfile }) {
         <div style={{background:"var(--s1)",borderRadius:16,padding:16,marginBottom:12,border:"1px solid var(--bdr)"}}>
           <div style={{fontSize:10,color:"var(--mut)",textTransform:"uppercase",letterSpacing:1,marginBottom:12}}>My Vibes</div>
           <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
-            {[...profile.genres,...profile.vibes].map(tag=>(
+            {[...(profile.genres||[]),...(profile.vibes||[])].map(tag=>(
               <span key={tag} style={{background:"rgba(155,48,255,0.14)",border:"1px solid rgba(155,48,255,0.28)",color:"#C080FF",fontSize:12,fontWeight:600,padding:"5px 12px",borderRadius:99}}>{tag}</span>
             ))}
           </div>
