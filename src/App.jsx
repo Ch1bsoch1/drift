@@ -72,9 +72,18 @@ const loadLeaflet = () => {
 
 // ─── DATA ────────────────────────────────────────────────────────────────────
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
-const heatCol = h => h>=88?"#FF2222":h>=75?"#FF7700":h>=60?"#9B30FF":"#00B4D8";
+// Snapchat Snap Map style heat colours: cold blue → cyan → green → yellow → orange → red
+const heatCol = h =>
+  h >= 90 ? "#FF0000" :   // burning red
+  h >= 80 ? "#FF3300" :   // red-orange
+  h >= 70 ? "#FF7700" :   // orange
+  h >= 60 ? "#FFCC00" :   // yellow-orange
+  h >= 50 ? "#AAEE00" :   // yellow-green
+  h >= 40 ? "#00CCFF" :   // cyan
+  "#0055FF";               // cold blue
+
 const likeCol = l => l>=80?"#00FF88":l>=65?"#88FF00":l>=50?"#FFD700":"#FF7700";
-const heatLabel = h => h>=88?"ON FIRE 🔥":h>=75?"HOT ⚡":h>=60?"VIBING 💜":"CHILL 🧊";
+const heatLabel = h => h>=90?"BURNING 🔥":h>=80?"ON FIRE ⚡":h>=70?"HOT 🟠":h>=60?"WARMING UP 🟡":h>=50?"ACTIVE 🟢":"COLD 🔵";
 
 const Spinner = () => (
   <span style={{display:"inline-block",width:18,height:18,border:"2px solid rgba(255,255,255,0.3)",borderTopColor:"white",borderRadius:"50%",animation:"vs-spin 0.7s linear infinite"}} />
@@ -92,24 +101,36 @@ const Pill = ({children,active,onClick}) => (
 
 // ─── LEAFLET CLUB ICON ────────────────────────────────────────────────────────
 const mkClubIcon = (L, club, ranked) => {
-  const heat = Math.max(club.heat || 0, 35);
+  const heat = Math.max(club.heat || 0, 20);
   const col = heatCol(heat);
-  const sz = Math.round(10 + heat * 0.1);
+  // Size scales from 9px (cold) to 22px (burning)
+  const sz = Math.round(9 + heat * 0.13);
+  // Glow radius scales aggressively with heat
+  const glow = Math.round(sz * 0.8 + heat * 0.18);
+  // Pulse ring grows bigger when hot
+  const ringSize = sz + 10 + Math.round(heat * 0.12);
+  // Pulse speed: slow when cold, fast when burning
+  const pulse = heat >= 85 ? "0.85s" : heat >= 70 ? "1.3s" : heat >= 50 ? "1.9s" : "2.8s";
+  // Outer ring only shows above 70 heat
+  const outerRing = heat >= 70
+    ? `<div style="width:${ringSize+16}px;height:${ringSize+16}px;border-radius:50%;background:${col}0D;animation:vs-pulse ${pulse} ease-in-out infinite 0.4s;position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);"></div>`
+    : "";
   const badge = ranked
     ? `<div style="position:absolute;top:-9px;right:-9px;background:${ranked.rank===1?"#FFD700":ranked.rank===2?"#C0C0C0":"#CD7F32"};color:#000;font-size:7px;font-weight:900;padding:1px 5px;border-radius:99px;z-index:2;">#${ranked.rank}</div>`
     : "";
   return L.divIcon({
     html:`<div style="text-align:center;font-family:'DM Sans',sans-serif;">
       <div style="position:relative;display:inline-block;">
-        <div style="width:${sz+12}px;height:${sz+12}px;border-radius:50%;background:${col}22;animation:vs-pulse 2s ease-in-out infinite;position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);"></div>
-        <div style="width:${sz}px;height:${sz}px;border-radius:50%;background:${col};box-shadow:0 0 ${sz*1.4}px ${col};${ranked?"border:2px solid white;":""}position:relative;z-index:1;"></div>
+        ${outerRing}
+        <div style="width:${ringSize}px;height:${ringSize}px;border-radius:50%;background:${col}22;animation:vs-pulse ${pulse} ease-in-out infinite;position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);"></div>
+        <div style="width:${sz}px;height:${sz}px;border-radius:50%;background:${col};box-shadow:0 0 ${glow}px ${glow/2}px ${col}88;${ranked?"border:2px solid white;":""}position:relative;z-index:1;"></div>
         ${badge}
       </div>
-      <div style="margin-top:5px;background:rgba(6,6,15,0.92);border:1px solid ${col}44;color:rgba(255,255,255,0.9);font-size:9px;font-weight:700;padding:2px 7px;border-radius:99px;white-space:nowrap;">${club.name}</div>
+      <div style="margin-top:6px;background:rgba(6,6,15,0.92);border:1px solid ${col}55;color:rgba(255,255,255,0.9);font-size:9px;font-weight:700;padding:2px 7px;border-radius:99px;white-space:nowrap;">${club.name}</div>
     </div>`,
     className:"",
-    iconSize:[90,54],
-    iconAnchor:[45,27],
+    iconSize:[90,58],
+    iconAnchor:[45,29],
   });
 };
 
@@ -200,7 +221,11 @@ export default function App() {
       .on("postgres_changes",{event:"*",schema:"public",table:"club_stats"}, p => {
         setClubs(prev => prev.map(c =>
           c.id === p.new.club_id
-            ? {...c, voters:p.new.voter_count, likelihood:Math.round(p.new.avg_likelihood), heat:p.new.heat_score}
+            ? {...c,
+                voters: p.new.voter_count,
+                likelihood: Math.round(p.new.avg_likelihood),
+                heat: Math.min(99, Math.max(0, p.new.heat_score))
+              }
             : c
         ));
       }).subscribe();
@@ -603,15 +628,38 @@ function MapTab({ clubs, rankings, friends, onSelect, onNotif, notifCount, total
     };
   }, []);
 
-  // Heatmap — update in place
+  // Heatmap — update in place with Snapchat-style gradient
   useEffect(() => {
     if (!mapReady) return;
     const L = window.L;
-    const data = clubs.map(c => [c.lat, c.lng, c.heat/100 * 1.8]);
+    // Weight combines heat score AND voter count for more realistic density
+    const maxVoters = Math.max(...clubs.map(c => c.voters || 1), 1);
+    const data = clubs.map(c => {
+      const heatWeight = (c.heat || 0) / 100;
+      const voterWeight = Math.log((c.voters || 0) + 1) / Math.log(maxVoters + 1);
+      const intensity = (heatWeight * 0.6 + voterWeight * 0.4) * 2.0;
+      return [c.lat, c.lng, Math.min(intensity, 1.8)];
+    });
     if (heatRef.current) {
       heatRef.current.setLatLngs?.(data);
     } else if (L.heatLayer) {
-      heatRef.current = L.heatLayer(data,{radius:38,blur:28,maxZoom:17,gradient:{0.3:"#9B30FF",0.55:"#FF7700",0.75:"#FF3B3B",1:"#FF0000"}}).addTo(mapRef.current);
+      heatRef.current = L.heatLayer(data, {
+        radius: 45,
+        blur: 35,
+        maxZoom: 17,
+        max: 1.0,
+        gradient: {
+          0.0:  "#0022FF",   // cold blue — nobody here
+          0.20: "#0088FF",   // blue
+          0.35: "#00CCFF",   // cyan
+          0.50: "#00FF88",   // green
+          0.62: "#AAEE00",   // yellow-green
+          0.72: "#FFCC00",   // yellow
+          0.82: "#FF7700",   // orange
+          0.91: "#FF3300",   // red-orange
+          1.00: "#FF0000",   // burning red
+        }
+      }).addTo(mapRef.current);
     }
   }, [clubs, mapReady]);
 
@@ -917,6 +965,27 @@ function FriendsTab({ friends, clubs, userId }) {
   const [searchResults, setSearchResults] = useState([]);
   const [searching, setSearching] = useState(false);
   const [requestSent, setRequestSent] = useState({});
+  const [incomingRequests, setIncomingRequests] = useState([]);
+
+  // Load incoming friend requests
+  useEffect(() => {
+    if (!userId) return;
+    supabase.from("friendships")
+      .select("id, user_a, profiles!friendships_user_a_fkey(id, display_name, handle, city)")
+      .eq("user_b", userId)
+      .eq("status", "pending")
+      .then(({ data }) => { if (data) setIncomingRequests(data); });
+  }, [userId]);
+
+  const acceptRequest = async (friendshipId, fromUserId) => {
+    await supabase.from("friendships").update({ status: "accepted" }).eq("id", friendshipId);
+    setIncomingRequests(prev => prev.filter(r => r.id !== friendshipId));
+  };
+
+  const declineRequest = async (friendshipId) => {
+    await supabase.from("friendships").delete().eq("id", friendshipId);
+    setIncomingRequests(prev => prev.filter(r => r.id !== friendshipId));
+  };
 
   useEffect(() => {
     if (activeTab !== "community") return;
@@ -956,7 +1025,7 @@ function FriendsTab({ friends, clubs, userId }) {
       <div style={{display:"flex",gap:8,marginBottom:16,background:"var(--s1)",padding:4,borderRadius:12}}>
         {["friends","community"].map(t=>(
           <button key={t} onClick={()=>setActiveTab(t)} style={{flex:1,padding:"8px 0",borderRadius:9,border:"none",background:activeTab===t?"linear-gradient(135deg,#9B30FF,#FF2D78)":"transparent",color:activeTab===t?"white":"var(--mut)",fontSize:13,fontWeight:700,cursor:"pointer",transition:"all 0.2s"}}>
-            {t==="friends"?`Friends (${friends.length})`:"Community"}
+            {t==="friends"?`Friends (${friends.length})${incomingRequests.length>0?` · ${incomingRequests.length} 🔔`:""}`:  "Community"}
           </button>
         ))}
       </div>
@@ -1001,7 +1070,32 @@ function FriendsTab({ friends, clubs, userId }) {
             </div>
             <button onClick={()=>navigator.share?.({title:"Drift",text:"Join me on Drift 🎉",url:window.location.href})} style={{background:"linear-gradient(135deg,#9B30FF,#FF2D78)",border:"none",color:"white",fontSize:12,fontWeight:700,padding:"8px 14px",borderRadius:99,cursor:"pointer"}}>Share</button>
           </div>
-          {friends.length===0&&!searchQ&&(
+
+          {/* Incoming friend requests */}
+          {incomingRequests.length > 0 && (
+            <div style={{marginBottom:16}}>
+              <div style={{fontSize:10,color:"#FF2D78",textTransform:"uppercase",letterSpacing:1,marginBottom:10,fontWeight:700}}>
+                Friend Requests ({incomingRequests.length})
+              </div>
+              {incomingRequests.map(r => (
+                <div key={r.id} style={{background:"rgba(255,45,120,0.08)",border:"1px solid rgba(255,45,120,0.2)",borderRadius:14,padding:"12px 14px",marginBottom:8,display:"flex",alignItems:"center",gap:12}}>
+                  <div style={{width:44,height:44,borderRadius:13,flexShrink:0,background:"linear-gradient(135deg,#9B30FF,#FF2D78)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,fontWeight:700,color:"white"}}>
+                    {(r.profiles?.display_name||"?")[0].toUpperCase()}
+                  </div>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:14,fontWeight:700}}>{r.profiles?.display_name||"User"}</div>
+                    <div style={{fontSize:11,color:"var(--mut)"}}>{r.profiles?.handle||""}{r.profiles?.city?` · ${r.profiles.city}`:""}</div>
+                  </div>
+                  <div style={{display:"flex",gap:8,flexShrink:0}}>
+                    <button onClick={()=>acceptRequest(r.id, r.user_a)} style={{background:"linear-gradient(135deg,#9B30FF,#FF2D78)",border:"none",color:"white",fontSize:12,fontWeight:700,padding:"7px 14px",borderRadius:99,cursor:"pointer"}}>Accept</button>
+                    <button onClick={()=>declineRequest(r.id)} style={{background:"rgba(255,255,255,0.07)",border:"1px solid rgba(255,255,255,0.1)",color:"var(--mut)",fontSize:12,fontWeight:700,padding:"7px 10px",borderRadius:99,cursor:"pointer"}}>✕</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {friends.length===0&&!searchQ&&incomingRequests.length===0&&(
             <div style={{textAlign:"center",padding:"32px 20px",color:"var(--mut)"}}>
               <div style={{fontSize:40,marginBottom:12}}>👥</div>
               <div style={{fontSize:15,fontWeight:700,marginBottom:6}}>No friends yet</div>
