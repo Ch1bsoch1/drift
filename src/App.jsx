@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import {
   MapPin, Users, User, X, Flame, Search, Navigation, Star,
-  Shield, Bell, Phone, MessageCircle, Check, UserPlus
+  Shield, Bell, Phone, MessageCircle, Check, UserPlus, ArrowLeft, Send
 } from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
 
@@ -85,6 +85,33 @@ const heatCol = h =>
 const likeCol = l => l>=80?"#00FF88":l>=65?"#88FF00":l>=50?"#FFD700":"#FF7700";
 const heatLabel = h => h>=90?"BURNING 🔥":h>=80?"ON FIRE ⚡":h>=70?"HOT 🟠":h>=60?"WARMING UP 🟡":h>=50?"ACTIVE 🟢":"COLD 🔵";
 
+const CITY_COORDS = {
+  "cardiff":        {lat:51.4816,lng:-3.1791,zoom:14},
+  "bath":           {lat:51.3813,lng:-2.3590,zoom:15},
+  "york":           {lat:53.9591,lng:-1.0818,zoom:15},
+  "coventry":       {lat:52.4068,lng:-1.5197,zoom:14},
+  "leamington spa": {lat:52.2920,lng:-1.5338,zoom:15},
+  "leamington":     {lat:52.2920,lng:-1.5338,zoom:15},
+  "warwick":        {lat:52.2920,lng:-1.5338,zoom:15},
+  "nottingham":     {lat:52.9548,lng:-1.1581,zoom:14},
+  "london":         {lat:51.5074,lng:-0.1278,zoom:12},
+  "manchester":     {lat:53.4808,lng:-2.2426,zoom:14},
+  "birmingham":     {lat:52.4862,lng:-1.8904,zoom:14},
+  "bristol":        {lat:51.4545,lng:-2.5879,zoom:14},
+  "leeds":          {lat:53.8008,lng:-1.5491,zoom:14},
+  "sheffield":      {lat:53.3811,lng:-1.4701,zoom:14},
+  "liverpool":      {lat:53.4084,lng:-2.9916,zoom:14},
+  "edinburgh":      {lat:55.9533,lng:-3.1883,zoom:14},
+  "glasgow":        {lat:55.8642,lng:-4.2518,zoom:14},
+  "newcastle":      {lat:54.9783,lng:-1.6178,zoom:14},
+  "brighton":       {lat:50.8225,lng:-0.1372,zoom:15},
+  "oxford":         {lat:51.7520,lng:-1.2577,zoom:15},
+  "cambridge":      {lat:52.2053,lng: 0.1218,zoom:15},
+  "exeter":         {lat:50.7184,lng:-3.5339,zoom:15},
+  "leicester":      {lat:52.6369,lng:-1.1398,zoom:14},
+  "southampton":    {lat:50.9097,lng:-1.4044,zoom:14},
+};
+
 const Spinner = () => (
   <span style={{display:"inline-block",width:18,height:18,border:"2px solid rgba(255,255,255,0.3)",borderTopColor:"white",borderRadius:"50%",animation:"vs-spin 0.7s linear infinite"}} />
 );
@@ -152,6 +179,7 @@ export default function App() {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [rankings, setRankings] = useState([]);
   const [notifOpen, setNotifOpen] = useState(false);
+  const [chatFriend, setChatFriend] = useState(null);
   const [clubs, setClubs] = useState([]);
   const [notifications, setNotifications] = useState([]);
   const [friends, setFriends] = useState([]);
@@ -378,11 +406,15 @@ export default function App() {
       {/* Screens — keep MapTab always mounted to avoid Leaflet re-init */}
       <div style={{position:"absolute",inset:0,bottom:70,visibility:tab==="map"?"visible":"hidden",pointerEvents:tab==="map"?"auto":"none"}}>
         <MapTab clubs={clubs} rankings={rankings} friends={friends} onSelect={handleSelect}
-          onNotif={() => setNotifOpen(true)} notifCount={notifications.filter(n=>!n.read).length} totalVoters={totalVoters} />
+          onNotif={() => setNotifOpen(true)} notifCount={notifications.filter(n=>!n.read).length}
+          totalVoters={totalVoters} userCity={profile.city} />
       </div>
       {tab==="picks" && <div style={{position:"absolute",inset:0,bottom:70,overflowY:"auto"}}><PicksTab clubs={clubs} rankings={rankings} onToggle={toggleRank} onLikelihood={updateLikelihood} /></div>}
-      {tab==="friends" && <div style={{position:"absolute",inset:0,bottom:70,overflowY:"auto"}}><FriendsTab friends={friends} clubs={clubs} userId={user?.id} /></div>}
+      {tab==="friends" && <div style={{position:"absolute",inset:0,bottom:70,overflowY:"auto"}}><FriendsTab friends={friends} clubs={clubs} userId={user?.id} onMessage={f=>setChatFriend(f)} /></div>}
       {tab==="profile" && <div style={{position:"absolute",inset:0,bottom:70,overflowY:"auto"}}><ProfileTab profile={profile} setProfile={saveProfile} onLogout={async () => { await supabase.auth.signOut(); setUser(null); setOnboarded(false); setRankings([]); setFriends([]); setNotifications([]); setTab("map"); }} /></div>}
+
+      {/* Chat overlay */}
+      {chatFriend && <ChatScreen friend={chatFriend} userId={user?.id} onClose={() => setChatFriend(null)} />}
 
       {sheetOpen && selected && (
         <ClubSheet
@@ -587,7 +619,7 @@ function OnboardingScreen({ profile, setProfile, userId, onDone }) {
 }
 
 // ─── MAP TAB ──────────────────────────────────────────────────────────────────
-function MapTab({ clubs, rankings, friends, onSelect, onNotif, notifCount, totalVoters }) {
+function MapTab({ clubs, rankings, friends, onSelect, onNotif, notifCount, totalVoters, userCity }) {
   const containerRef = useRef(null);
   const mapRef = useRef(null);
   const heatRef = useRef(null);
@@ -617,7 +649,9 @@ function MapTab({ clubs, rankings, friends, onSelect, onNotif, notifCount, total
     let active = true;
     loadLeaflet().then(L => {
       if (!active || !containerRef.current || mapRef.current) return;
-      const map = L.map(containerRef.current, {center:[51.4816,-3.1791],zoom:14,zoomControl:false,attributionControl:false});
+      const cityKey = (userCity || "cardiff").toLowerCase();
+      const cityCoords = CITY_COORDS[cityKey] || CITY_COORDS["cardiff"];
+      const map = L.map(containerRef.current, {center:[cityCoords.lat,cityCoords.lng],zoom:cityCoords.zoom,zoomControl:false,attributionControl:false});
       L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",{subdomains:"abcd",maxZoom:20}).addTo(map);
       mapRef.current = map;
       setMapReady(true);
@@ -956,7 +990,7 @@ function PicksTab({ clubs, rankings, onToggle, onLikelihood }) {
 }
 
 // ─── FRIENDS TAB ──────────────────────────────────────────────────────────────
-function FriendsTab({ friends, clubs, userId }) {
+function FriendsTab({ friends, clubs, userId, onMessage }) {
   const going = friends.filter(f=>f.goingTo);
   const unsure = friends.filter(f=>!f.goingTo);
   const [activeTab, setActiveTab] = useState("friends");
@@ -1113,7 +1147,7 @@ function FriendsTab({ friends, clubs, userId }) {
                     <div style={{fontSize:14,fontWeight:700}}>{f.name} <span style={{fontSize:11,color:"var(--mut)",fontWeight:400}}>{f.handle}</span></div>
                     <div style={{fontSize:11,color:"var(--mut)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>→ {club?.name||"somewhere"}{f.likelihood?` · ${f.likelihood}% likely`:""}</div>
                   </div>
-                  <button style={{width:34,height:34,borderRadius:10,background:"rgba(155,48,255,0.12)",border:"1px solid rgba(155,48,255,0.2)",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer"}}><MessageCircle size={15} color="var(--p)"/></button>
+                  <button onClick={()=>onMessage(f)} style={{width:34,height:34,borderRadius:10,background:"rgba(155,48,255,0.12)",border:"1px solid rgba(155,48,255,0.2)",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer"}}><MessageCircle size={15} color="var(--p)"/></button>
                 </div>
               );
             })}
@@ -1127,7 +1161,7 @@ function FriendsTab({ friends, clubs, userId }) {
                   <div style={{fontSize:14,fontWeight:700}}>{f.name} <span style={{fontSize:11,color:"var(--mut)",fontWeight:400}}>{f.handle}</span></div>
                   <div style={{fontSize:11,color:"var(--mut)"}}>No plans yet tonight</div>
                 </div>
-                <button style={{width:34,height:34,borderRadius:10,background:"rgba(155,48,255,0.12)",border:"1px solid rgba(155,48,255,0.2)",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer"}}><MessageCircle size={15} color="var(--p)"/></button>
+                <button onClick={()=>onMessage(f)} style={{width:34,height:34,borderRadius:10,background:"rgba(155,48,255,0.12)",border:"1px solid rgba(155,48,255,0.2)",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer"}}><MessageCircle size={15} color="var(--p)"/></button>
               </div>
             ))}
           </>}
@@ -1242,6 +1276,132 @@ function ProfileTab({ profile, setProfile, onLogout }) {
         }}>
           Log Out
         </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── CHAT SCREEN ──────────────────────────────────────────────────────────────
+function ChatScreen({ friend, userId, onClose }) {
+  const [messages, setMessages] = useState([]);
+  const [text, setText] = useState("");
+  const [convId, setConvId] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const bottomRef = useRef(null);
+
+  // Get or create conversation
+  useEffect(() => {
+    if (!userId || !friend?.id) return;
+    const [a, b] = [userId, friend.id].sort();
+    supabase.from("conversations").select("id").eq("user_a", a).eq("user_b", b).single()
+      .then(async ({ data, error }) => {
+        if (data) {
+          setConvId(data.id);
+        } else {
+          const { data: newConv } = await supabase.from("conversations")
+            .insert({ user_a: a, user_b: b }).select("id").single();
+          if (newConv) setConvId(newConv.id);
+        }
+      });
+  }, [userId, friend?.id]);
+
+  // Load messages + realtime
+  useEffect(() => {
+    if (!convId) return;
+    supabase.from("messages").select("*").eq("conversation_id", convId)
+      .order("created_at", { ascending: true })
+      .then(({ data }) => { if (data) setMessages(data); setLoading(false); });
+
+    const ch = supabase.channel(`chat-${convId}`)
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages", filter: `conversation_id=eq.${convId}` },
+        p => setMessages(prev => [...prev, p.new])
+      ).subscribe();
+    return () => supabase.removeChannel(ch);
+  }, [convId]);
+
+  // Scroll to bottom on new messages
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  const send = async () => {
+    const content = text.trim();
+    if (!content || !convId) return;
+    setText("");
+    await supabase.from("messages").insert({ conversation_id: convId, sender_id: userId, content });
+    await supabase.from("conversations").update({ last_message: content, last_message_at: new Date().toISOString() }).eq("id", convId);
+  };
+
+  const formatTime = ts => {
+    const d = new Date(ts);
+    return d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+  };
+
+  return (
+    <div style={{position:"fixed",inset:0,background:"var(--bg)",zIndex:300,display:"flex",flexDirection:"column",maxWidth:430,margin:"0 auto"}}>
+      {/* Header */}
+      <div style={{padding:"54px 20px 14px",background:"var(--s1)",borderBottom:"1px solid var(--bdr)",display:"flex",alignItems:"center",gap:12,flexShrink:0}}>
+        <button onClick={onClose} style={{background:"none",border:"none",cursor:"pointer",color:"var(--txt)",padding:4,display:"flex",flexShrink:0}}>
+          <ArrowLeft size={22}/>
+        </button>
+        <div style={{width:40,height:40,borderRadius:13,flexShrink:0,background:"linear-gradient(135deg,#9B30FF,#FF2D78)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:17,fontWeight:700,color:"white"}}>
+          {(friend?.name||"?")[0].toUpperCase()}
+        </div>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{fontSize:15,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{friend?.name||"User"}</div>
+          <div style={{fontSize:11,color:"var(--mut)"}}>{friend?.handle||""}</div>
+        </div>
+      </div>
+
+      {/* Messages */}
+      <div style={{flex:1,overflowY:"auto",padding:"16px 16px 8px",display:"flex",flexDirection:"column",gap:6}}>
+        {loading && (
+          <div style={{textAlign:"center",padding:40}}>
+            <div style={{width:28,height:28,border:"3px solid rgba(155,48,255,0.2)",borderTopColor:"#9B30FF",borderRadius:"50%",animation:"vs-spin 0.8s linear infinite",margin:"0 auto"}}/>
+          </div>
+        )}
+        {!loading && messages.length === 0 && (
+          <div style={{textAlign:"center",padding:"48px 20px",color:"var(--mut)"}}>
+            <div style={{fontSize:36,marginBottom:12}}>💬</div>
+            <div style={{fontSize:14,fontWeight:600,marginBottom:4}}>Say hi to {friend?.name}!</div>
+            <div style={{fontSize:12}}>This is the start of your conversation</div>
+          </div>
+        )}
+        {messages.map((m, i) => {
+          const isMe = m.sender_id === userId;
+          const showTime = i === messages.length - 1 || messages[i+1]?.sender_id !== m.sender_id;
+          return (
+            <div key={m.id} style={{display:"flex",flexDirection:"column",alignItems:isMe?"flex-end":"flex-start"}}>
+              <div style={{
+                maxWidth:"75%",
+                background:isMe?"linear-gradient(135deg,#9B30FF,#FF2D78)":"var(--s1)",
+                color:"white",
+                padding:"10px 14px",
+                borderRadius:isMe?"18px 18px 4px 18px":"18px 18px 18px 4px",
+                fontSize:14,lineHeight:1.45,
+                border:isMe?"none":"1px solid var(--bdr)",
+              }}>{m.content}</div>
+              {showTime && <div style={{fontSize:10,color:"var(--mut)",marginTop:3,padding:"0 4px"}}>{formatTime(m.created_at)}</div>}
+            </div>
+          );
+        })}
+        <div ref={bottomRef}/>
+      </div>
+
+      {/* Input */}
+      <div style={{padding:"10px 16px 36px",background:"var(--s1)",borderTop:"1px solid var(--bdr)",display:"flex",gap:10,alignItems:"center",flexShrink:0}}>
+        <input value={text} onChange={e=>setText(e.target.value)}
+          onKeyDown={e=>e.key==="Enter"&&!e.shiftKey&&send()}
+          placeholder={`Message ${friend?.name||""}…`}
+          style={{flex:1,background:"var(--s2)",border:"1px solid var(--bdr)",borderRadius:22,padding:"11px 16px",fontSize:14,color:"var(--txt)",outline:"none",caretColor:"var(--p)"}}
+        />
+        <button onClick={send} disabled={!text.trim()} style={{
+          width:44,height:44,borderRadius:"50%",border:"none",flexShrink:0,
+          background:text.trim()?"linear-gradient(135deg,#9B30FF,#FF2D78)":"rgba(255,255,255,0.07)",
+          color:"white",cursor:text.trim()?"pointer":"default",
+          display:"flex",alignItems:"center",justifyContent:"center",
+          transition:"background 0.2s",
+        }}><Send size={17}/></button>
       </div>
     </div>
   );
