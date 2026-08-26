@@ -34,6 +34,8 @@ const timeAgo = ts => {
     }
     @keyframes vs-pulse{0%,100%{opacity:.5;transform:scale(1)}50%{opacity:.12;transform:scale(1.7)}}
     @keyframes vs-slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
+    @keyframes vs-slideDown{from{transform:translateY(-120%) scale(0.95);opacity:0}to{transform:translateY(0) scale(1);opacity:1}}
+    @keyframes vs-shrink{from{width:100%}to{width:0%}}
     @keyframes vs-fadeIn{from{opacity:0}to{opacity:1}}
     @keyframes vs-spin{to{transform:rotate(360deg)}}
     ::-webkit-scrollbar{display:none}
@@ -182,6 +184,8 @@ export default function App() {
   const [chatFriend, setChatFriend] = useState(null);
   const [viewProfile, setViewProfile] = useState(null);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [unreadPerFriend, setUnreadPerFriend] = useState({});
+  const [banner, setBanner] = useState(null);
   const [clubs, setClubs] = useState([]);
   const [notifications, setNotifications] = useState([]);
   const [friends, setFriends] = useState([]);
@@ -325,28 +329,53 @@ export default function App() {
     return () => supabase.removeChannel(ch);
   }, [user?.id]);
 
-  // Track unread message count
+  // Track unread counts + show banner on new message
   useEffect(() => {
     if (!user?.id) return;
     const uid = user.id;
+
     const checkUnread = async () => {
       const { data: convs } = await supabase.from("conversations")
-        .select("id").or(`user_a.eq.${uid},user_b.eq.${uid}`);
-      if (!convs?.length) { setUnreadCount(0); return; }
+        .select("id,user_a,user_b").or(`user_a.eq.${uid},user_b.eq.${uid}`);
+      if (!convs?.length) { setUnreadCount(0); setUnreadPerFriend({}); return; }
       const ids = convs.map(c => c.id);
-      const { count } = await supabase.from("messages")
-        .select("*", { count: "exact", head: true })
+      const { data: unreadMsgs } = await supabase.from("messages")
+        .select("conversation_id,sender_id")
         .in("conversation_id", ids)
         .neq("sender_id", uid)
         .is("read_at", null);
-      setUnreadCount(count || 0);
+      setUnreadCount(unreadMsgs?.length || 0);
+      const perFriend = {};
+      (unreadMsgs || []).forEach(m => {
+        const conv = convs.find(c => c.id === m.conversation_id);
+        if (!conv) return;
+        const fid = conv.user_a === uid ? conv.user_b : conv.user_a;
+        perFriend[fid] = (perFriend[fid] || 0) + 1;
+      });
+      setUnreadPerFriend(perFriend);
     };
+
     checkUnread();
-    const chName = `unread-${uid}`;
-    supabase.removeChannel(supabase.channel(chName)); // remove if exists
-    const ch = supabase.channel(chName)
+    supabase.removeChannel(supabase.channel(`unread-${uid}`));
+    const ch = supabase.channel(`unread-${uid}`)
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages" },
-        () => checkUnread()
+        async (p) => {
+          if (p.new.sender_id === uid) return;
+          checkUnread();
+          // Show banner — find who sent it
+          const { data: conv } = await supabase.from("conversations")
+            .select("user_a,user_b").eq("id", p.new.conversation_id).single();
+          if (!conv) return;
+          const friendId = conv.user_a === uid ? conv.user_b : conv.user_a;
+          const { data: fp } = await supabase.from("profiles")
+            .select("id,display_name,handle").eq("id", friendId).single();
+          if (fp) {
+            setBanner({
+              friend: { id: fp.id, name: fp.display_name || "Someone", handle: fp.handle || "" },
+              message: p.new.content,
+            });
+          }
+        }
       ).subscribe();
     return () => supabase.removeChannel(ch);
   }, [user?.id]);
@@ -440,13 +469,14 @@ export default function App() {
           totalVoters={totalVoters} userCity={profile.city} />
       </div>
       {tab==="picks" && <div style={{position:"absolute",inset:0,bottom:70,overflowY:"auto"}}><PicksTab clubs={clubs} rankings={rankings} onToggle={toggleRank} onLikelihood={updateLikelihood} /></div>}
-      {tab==="friends" && <div style={{position:"absolute",inset:0,bottom:70,overflowY:"auto"}}><FriendsTab friends={friends} clubs={clubs} userId={user?.id} onMessage={f=>setChatFriend(f)} onViewProfile={f=>setViewProfile(f)} /></div>}
+      {tab==="friends" && <div style={{position:"absolute",inset:0,bottom:70,overflowY:"auto"}}><FriendsTab friends={friends} clubs={clubs} userId={user?.id} onMessage={f=>setChatFriend(f)} onViewProfile={f=>setViewProfile(f)} unreadPerFriend={unreadPerFriend} /></div>}
       {tab==="messages" && <div style={{position:"absolute",inset:0,bottom:70,overflowY:"auto"}}><MessagesTab userId={user?.id} onOpen={f=>{setChatFriend(f); setUnreadCount(c=>Math.max(0,c-1));}} /></div>}
       {tab==="profile" && <div style={{position:"absolute",inset:0,bottom:70,overflowY:"auto"}}><ProfileTab profile={profile} setProfile={saveProfile} onLogout={async () => { await supabase.auth.signOut(); setUser(null); setOnboarded(false); setRankings([]); setFriends([]); setNotifications([]); setTab("map"); }} /></div>}
 
       {/* Chat overlay */}
-      {chatFriend && <ChatScreen friend={chatFriend} userId={user?.id} onClose={() => setChatFriend(null)} onUnreadClear={() => setUnreadCount(c => Math.max(0,c-1))} />}
+      {chatFriend && <ChatScreen friend={chatFriend} userId={user?.id} onClose={() => { setChatFriend(null); }} onUnreadClear={() => setUnreadCount(c => Math.max(0,c-1))} />}
       {viewProfile && <FriendProfile friend={viewProfile} clubs={clubs} userId={user?.id} onMessage={f=>{setViewProfile(null); setChatFriend(f);}} onClose={() => setViewProfile(null)} />}
+      {banner && <NotificationBanner banner={banner} onTap={() => { setChatFriend(banner.friend); setBanner(null); }} onClose={() => setBanner(null)} />}
 
       {sheetOpen && selected && (
         <ClubSheet
@@ -1022,7 +1052,7 @@ function PicksTab({ clubs, rankings, onToggle, onLikelihood }) {
 }
 
 // ─── FRIENDS TAB ──────────────────────────────────────────────────────────────
-function FriendsTab({ friends, clubs, userId, onMessage, onViewProfile }) {
+function FriendsTab({ friends, clubs, userId, onMessage, onViewProfile, unreadPerFriend = {} }) {
   const going = friends.filter(f=>f.goingTo);
   const unsure = friends.filter(f=>!f.goingTo);
   const [activeTab, setActiveTab] = useState("friends");
@@ -1174,7 +1204,10 @@ function FriendsTab({ friends, clubs, userId, onMessage, onViewProfile }) {
               const club=clubs.find(c=>c.id===f.goingTo);
               return (
                 <button key={f.id} onClick={()=>onViewProfile(f)} style={{width:"100%",background:"var(--s1)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:14,padding:"12px 14px",marginBottom:10,display:"flex",alignItems:"center",gap:12,textAlign:"left",cursor:"pointer"}}>
-                  <div style={{width:46,height:46,borderRadius:14,flexShrink:0,background:"linear-gradient(135deg,#9B30FF,#FF2D78)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,fontWeight:700,color:"white"}}>{(f.name||"?")[0].toUpperCase()}</div>
+                  <div style={{width:46,height:46,borderRadius:14,flexShrink:0,background:"linear-gradient(135deg,#9B30FF,#FF2D78)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,fontWeight:700,color:"white",position:"relative"}}>
+                    {(f.name||"?")[0].toUpperCase()}
+                    {unreadPerFriend[f.id]>0 && <div style={{position:"absolute",top:-5,right:-5,minWidth:18,height:18,borderRadius:99,background:"#FF2D78",border:"2px solid var(--bg)",fontSize:10,fontWeight:900,color:"white",display:"flex",alignItems:"center",justifyContent:"center",padding:"0 4px"}}>{unreadPerFriend[f.id]}</div>}
+                  </div>
                   <div style={{flex:1,minWidth:0}}>
                     <div style={{fontSize:14,fontWeight:700,color:"var(--txt)"}}>{f.name} <span style={{fontSize:11,color:"var(--mut)",fontWeight:400}}>{f.handle}</span></div>
                     <div style={{fontSize:11,color:"var(--mut)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>→ {club?.name||"somewhere"}{f.likelihood?` · ${f.likelihood}% likely`:""}</div>
@@ -1587,6 +1620,63 @@ function FriendProfile({ friend, clubs, userId, onMessage, onClose }) {
           color:"#FF2D78",fontSize:14,fontWeight:700,cursor:"pointer"}}>
           {removing?"…":"Remove"}
         </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── NOTIFICATION BANNER ─────────────────────────────────────────────────────
+function NotificationBanner({ banner, onTap, onClose }) {
+  const [visible, setVisible] = useState(true);
+
+  useEffect(() => {
+    const t = setTimeout(() => { setVisible(false); setTimeout(onClose, 300); }, 4000);
+    return () => clearTimeout(t);
+  }, [banner]);
+
+  return (
+    <div style={{
+      position:"fixed", top:0, left:0, right:0, zIndex:500,
+      padding:"52px 12px 0", maxWidth:430, margin:"0 auto",
+      animation: visible ? "vs-slideDown 0.35s cubic-bezier(0.34,1.56,0.64,1)" : "none",
+      opacity: visible ? 1 : 0,
+      transition: "opacity 0.3s",
+      pointerEvents:"auto",
+    }}>
+      <button onClick={onTap} style={{
+        width:"100%", background:"rgba(12,12,24,0.96)", backdropFilter:"blur(24px)",
+        border:"1px solid rgba(155,48,255,0.35)", borderRadius:18,
+        padding:"12px 14px", display:"flex", alignItems:"center", gap:12,
+        cursor:"pointer", textAlign:"left",
+        boxShadow:"0 8px 40px rgba(0,0,0,0.7), 0 0 0 1px rgba(155,48,255,0.15)",
+      }}>
+        {/* Avatar */}
+        <div style={{width:42,height:42,borderRadius:13,flexShrink:0,
+          background:"linear-gradient(135deg,#9B30FF,#FF2D78)",
+          display:"flex",alignItems:"center",justifyContent:"center",
+          fontSize:18,fontWeight:700,color:"white",
+          boxShadow:"0 0 16px rgba(155,48,255,0.5)"}}>
+          {(banner.friend.name||"?")[0].toUpperCase()}
+        </div>
+        {/* Text */}
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:2}}>
+            <span style={{fontSize:13,fontWeight:700,color:"var(--txt)"}}>{banner.friend.name}</span>
+            <span style={{fontSize:10,color:"var(--mut)"}}>• now</span>
+          </div>
+          <div style={{fontSize:13,color:"rgba(255,255,255,0.7)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{banner.message}</div>
+        </div>
+        {/* Close */}
+        <button onClick={e=>{e.stopPropagation(); setVisible(false); setTimeout(onClose,300);}}
+          style={{width:28,height:28,borderRadius:8,background:"rgba(255,255,255,0.08)",border:"none",
+            color:"var(--mut)",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+          <X size={13}/>
+        </button>
+      </button>
+      {/* Progress bar */}
+      <div style={{height:2,background:"rgba(155,48,255,0.2)",borderRadius:1,margin:"6px 4px 0",overflow:"hidden"}}>
+        <div style={{height:"100%",background:"linear-gradient(90deg,#9B30FF,#FF2D78)",borderRadius:1,
+          animation:"vs-shrink 4s linear forwards"}}/>
       </div>
     </div>
   );
