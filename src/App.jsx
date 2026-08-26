@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import {
   MapPin, Users, User, X, Flame, Search, Navigation, Star,
-  Shield, Bell, Phone, MessageCircle, Check, UserPlus, ArrowLeft, Send, MessageSquare
+  Shield, Bell, Phone, MessageCircle, Check, UserPlus, ArrowLeft, Send
 } from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
 
@@ -180,8 +180,6 @@ export default function App() {
   const [rankings, setRankings] = useState([]);
   const [notifOpen, setNotifOpen] = useState(false);
   const [chatFriend, setChatFriend] = useState(null);
-  const [viewProfile, setViewProfile] = useState(null);
-  const [unreadCount, setUnreadCount] = useState(0);
   const [clubs, setClubs] = useState([]);
   const [notifications, setNotifications] = useState([]);
   const [friends, setFriends] = useState([]);
@@ -323,29 +321,6 @@ export default function App() {
     return () => supabase.removeChannel(ch);
   }, [user]);
 
-  // Track unread message count
-  useEffect(() => {
-    if (!user) return;
-    const checkUnread = async () => {
-      const { data: convs } = await supabase.from("conversations")
-        .select("id").or(`user_a.eq.${user.id},user_b.eq.${user.id}`);
-      if (!convs?.length) return;
-      const ids = convs.map(c => c.id);
-      const { count } = await supabase.from("messages")
-        .select("*", { count: "exact", head: true })
-        .in("conversation_id", ids)
-        .neq("sender_id", user.id)
-        .is("read_at", null);
-      setUnreadCount(count || 0);
-    };
-    checkUnread();
-    const ch = supabase.channel(`unread-${user.id}`)
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages" },
-        () => checkUnread()
-      ).subscribe();
-    return () => supabase.removeChannel(ch);
-  }, [user]);
-
   const myRank = useCallback(id => rankings.find(r => r.clubId === id), [rankings]);
 
   const toggleRank = useCallback(async id => {
@@ -435,13 +410,11 @@ export default function App() {
           totalVoters={totalVoters} userCity={profile.city} />
       </div>
       {tab==="picks" && <div style={{position:"absolute",inset:0,bottom:70,overflowY:"auto"}}><PicksTab clubs={clubs} rankings={rankings} onToggle={toggleRank} onLikelihood={updateLikelihood} /></div>}
-      {tab==="friends" && <div style={{position:"absolute",inset:0,bottom:70,overflowY:"auto"}}><FriendsTab friends={friends} clubs={clubs} userId={user?.id} onMessage={f=>setChatFriend(f)} onViewProfile={f=>setViewProfile(f)} /></div>}
-      {tab==="messages" && <div style={{position:"absolute",inset:0,bottom:70,overflowY:"auto"}}><MessagesTab userId={user?.id} onOpen={f=>{setChatFriend(f); setUnreadCount(c=>Math.max(0,c-1));}} /></div>}
+      {tab==="friends" && <div style={{position:"absolute",inset:0,bottom:70,overflowY:"auto"}}><FriendsTab friends={friends} clubs={clubs} userId={user?.id} onMessage={f=>setChatFriend(f)} /></div>}
       {tab==="profile" && <div style={{position:"absolute",inset:0,bottom:70,overflowY:"auto"}}><ProfileTab profile={profile} setProfile={saveProfile} onLogout={async () => { await supabase.auth.signOut(); setUser(null); setOnboarded(false); setRankings([]); setFriends([]); setNotifications([]); setTab("map"); }} /></div>}
 
       {/* Chat overlay */}
-      {chatFriend && <ChatScreen friend={chatFriend} userId={user?.id} onClose={() => setChatFriend(null)} onUnreadClear={() => setUnreadCount(c => Math.max(0,c-1))} />}
-      {viewProfile && <FriendProfile friend={viewProfile} clubs={clubs} userId={user?.id} onMessage={f=>{setViewProfile(null); setChatFriend(f);}} onClose={() => setViewProfile(null)} />}
+      {chatFriend && <ChatScreen friend={chatFriend} userId={user?.id} onClose={() => setChatFriend(null)} />}
 
       {sheetOpen && selected && (
         <ClubSheet
@@ -452,7 +425,7 @@ export default function App() {
         />
       )}
 
-      <BottomNav tab={tab} setTab={setTab} rankCount={rankings.length} unreadCount={unreadCount} />
+      <BottomNav tab={tab} setTab={setTab} rankCount={rankings.length} />
     </div>
   );
 }
@@ -1017,7 +990,7 @@ function PicksTab({ clubs, rankings, onToggle, onLikelihood }) {
 }
 
 // ─── FRIENDS TAB ──────────────────────────────────────────────────────────────
-function FriendsTab({ friends, clubs, userId, onMessage, onViewProfile }) {
+function FriendsTab({ friends, clubs, userId, onMessage }) {
   const going = friends.filter(f=>f.goingTo);
   const unsure = friends.filter(f=>!f.goingTo);
   const [activeTab, setActiveTab] = useState("friends");
@@ -1168,28 +1141,28 @@ function FriendsTab({ friends, clubs, userId, onMessage, onViewProfile }) {
             {going.map(f=>{
               const club=clubs.find(c=>c.id===f.goingTo);
               return (
-                <button key={f.id} onClick={()=>onViewProfile(f)} style={{width:"100%",background:"var(--s1)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:14,padding:"12px 14px",marginBottom:10,display:"flex",alignItems:"center",gap:12,textAlign:"left",cursor:"pointer"}}>
+                <div key={f.id} style={{background:"var(--s1)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:14,padding:"12px 14px",marginBottom:10,display:"flex",alignItems:"center",gap:12}}>
                   <div style={{width:46,height:46,borderRadius:14,flexShrink:0,background:"linear-gradient(135deg,#9B30FF,#FF2D78)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,fontWeight:700,color:"white"}}>{(f.name||"?")[0].toUpperCase()}</div>
                   <div style={{flex:1,minWidth:0}}>
-                    <div style={{fontSize:14,fontWeight:700,color:"var(--txt)"}}>{f.name} <span style={{fontSize:11,color:"var(--mut)",fontWeight:400}}>{f.handle}</span></div>
+                    <div style={{fontSize:14,fontWeight:700}}>{f.name} <span style={{fontSize:11,color:"var(--mut)",fontWeight:400}}>{f.handle}</span></div>
                     <div style={{fontSize:11,color:"var(--mut)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>→ {club?.name||"somewhere"}{f.likelihood?` · ${f.likelihood}% likely`:""}</div>
                   </div>
-                  <button onClick={e=>{e.stopPropagation();onMessage(f);}} style={{width:34,height:34,borderRadius:10,background:"rgba(155,48,255,0.12)",border:"1px solid rgba(155,48,255,0.2)",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0}}><MessageCircle size={15} color="var(--p)"/></button>
-                </button>
+                  <button onClick={()=>onMessage(f)} style={{width:34,height:34,borderRadius:10,background:"rgba(155,48,255,0.12)",border:"1px solid rgba(155,48,255,0.2)",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer"}}><MessageCircle size={15} color="var(--p)"/></button>
+                </div>
               );
             })}
           </>}
           {unsure.length>0&&<>
             <div style={{fontSize:10,color:"var(--mut)",textTransform:"uppercase",letterSpacing:1,margin:"18px 0 12px"}}>Not sure yet</div>
             {unsure.map(f=>(
-              <button key={f.id} onClick={()=>onViewProfile(f)} style={{width:"100%",background:"var(--s1)",border:"1px solid rgba(255,255,255,0.05)",borderRadius:14,padding:"12px 14px",marginBottom:10,display:"flex",alignItems:"center",gap:12,opacity:0.65,textAlign:"left",cursor:"pointer"}}>
+              <div key={f.id} style={{background:"var(--s1)",border:"1px solid rgba(255,255,255,0.05)",borderRadius:14,padding:"12px 14px",marginBottom:10,display:"flex",alignItems:"center",gap:12,opacity:0.65}}>
                 <div style={{width:46,height:46,borderRadius:14,flexShrink:0,background:"var(--s2)",border:"1px solid rgba(255,255,255,0.07)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,fontWeight:700,color:"var(--mut)"}}>{(f.name||"?")[0].toUpperCase()}</div>
                 <div style={{flex:1}}>
-                  <div style={{fontSize:14,fontWeight:700,color:"var(--txt)"}}>{f.name} <span style={{fontSize:11,color:"var(--mut)",fontWeight:400}}>{f.handle}</span></div>
+                  <div style={{fontSize:14,fontWeight:700}}>{f.name} <span style={{fontSize:11,color:"var(--mut)",fontWeight:400}}>{f.handle}</span></div>
                   <div style={{fontSize:11,color:"var(--mut)"}}>No plans yet tonight</div>
                 </div>
-                <button onClick={e=>{e.stopPropagation();onMessage(f);}} style={{width:34,height:34,borderRadius:10,background:"rgba(155,48,255,0.12)",border:"1px solid rgba(155,48,255,0.2)",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0}}><MessageCircle size={15} color="var(--p)"/></button>
-              </button>
+                <button onClick={()=>onMessage(f)} style={{width:34,height:34,borderRadius:10,background:"rgba(155,48,255,0.12)",border:"1px solid rgba(155,48,255,0.2)",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer"}}><MessageCircle size={15} color="var(--p)"/></button>
+              </div>
             ))}
           </>}
         </>
@@ -1309,286 +1282,146 @@ function ProfileTab({ profile, setProfile, onLogout }) {
 }
 
 // ─── CHAT SCREEN ──────────────────────────────────────────────────────────────
-// ─── CHAT SCREEN ──────────────────────────────────────────────────────────────
-function ChatScreen({ friend, userId, onClose, onUnreadClear }) {
+function ChatScreen({ friend, userId, onClose }) {
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState("");
   const [convId, setConvId] = useState(null);
-  const [ready, setReady] = useState(false);
+  const [loading, setLoading] = useState(true);
   const bottomRef = useRef(null);
-  const inputRef = useRef(null);
 
+  // Get or create conversation
   useEffect(() => {
     if (!userId || !friend?.id) return;
     const [a, b] = [userId, friend.id].sort();
-    supabase.from("conversations").select("id").eq("user_a",a).eq("user_b",b).single()
-      .then(async ({ data }) => {
-        if (data) { setConvId(data.id); return; }
-        const { data: nc } = await supabase.from("conversations")
-          .insert({user_a:a,user_b:b}).select("id").single();
-        if (nc) setConvId(nc.id);
+    supabase.from("conversations").select("id").eq("user_a", a).eq("user_b", b).single()
+      .then(async ({ data, error }) => {
+        if (data) {
+          setConvId(data.id);
+        } else {
+          const { data: newConv } = await supabase.from("conversations")
+            .insert({ user_a: a, user_b: b }).select("id").single();
+          if (newConv) setConvId(newConv.id);
+        }
       });
   }, [userId, friend?.id]);
 
+  // Load messages + realtime
   useEffect(() => {
     if (!convId) return;
-    supabase.from("messages").select("*").eq("conversation_id",convId)
-      .order("created_at",{ascending:true})
-      .then(({data}) => { if (data) setMessages(data); setReady(true); });
-    supabase.from("messages").update({read_at:new Date().toISOString()})
-      .eq("conversation_id",convId).neq("sender_id",userId).is("read_at",null)
-      .then(() => onUnreadClear?.());
+    supabase.from("messages").select("*").eq("conversation_id", convId)
+      .order("created_at", { ascending: true })
+      .then(({ data }) => { if (data) setMessages(data); setLoading(false); });
+
     const ch = supabase.channel(`chat-${convId}`)
-      .on("postgres_changes",{event:"INSERT",schema:"public",table:"messages",filter:`conversation_id=eq.${convId}`},
-        p => {
-          setMessages(prev => {
-            const noTemp = prev.filter(m => !(typeof m.id==="string" && m.id.startsWith("t-") && m.content===p.new.content));
-            if (noTemp.find(m => m.id===p.new.id)) return noTemp;
-            return [...noTemp, p.new];
-          });
-          if (p.new.sender_id !== userId) {
-            supabase.from("messages").update({read_at:new Date().toISOString()}).eq("id",p.new.id);
-          }
-        }
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages", filter: `conversation_id=eq.${convId}` },
+        p => setMessages(prev => [...prev, p.new])
       ).subscribe();
     return () => supabase.removeChannel(ch);
-  }, [convId, userId]);
+  }, [convId]);
 
-  useEffect(() => { bottomRef.current?.scrollIntoView({behavior:"smooth"}); }, [messages]);
+  // Scroll to bottom on new messages
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
 
-  const send = () => {
+  const send = async () => {
     const content = text.trim();
     if (!content || !convId) return;
-    const tempId = `t-${Date.now()}`;
-    setMessages(prev => [...prev, {id:tempId,conversation_id:convId,sender_id:userId,content,created_at:new Date().toISOString()}]);
     setText("");
-    inputRef.current?.focus();
-    supabase.from("messages").insert({conversation_id:convId,sender_id:userId,content});
-    supabase.from("conversations").update({last_message:content,last_message_at:new Date().toISOString()}).eq("id",convId);
+    await supabase.from("messages").insert({ conversation_id: convId, sender_id: userId, content });
+    await supabase.from("conversations").update({ last_message: content, last_message_at: new Date().toISOString() }).eq("id", convId);
   };
 
-  const fmt = ts => new Date(ts).toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"});
+  const formatTime = ts => {
+    const d = new Date(ts);
+    return d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+  };
 
   return (
     <div style={{position:"fixed",inset:0,background:"var(--bg)",zIndex:300,display:"flex",flexDirection:"column",maxWidth:430,margin:"0 auto"}}>
-      <div style={{padding:"50px 16px 12px",background:"var(--s1)",borderBottom:"1px solid var(--bdr)",display:"flex",alignItems:"center",gap:12,flexShrink:0}}>
-        <button onClick={onClose} style={{background:"none",border:"none",cursor:"pointer",color:"var(--txt)",padding:6,display:"flex",marginLeft:-6}}><ArrowLeft size={22}/></button>
-        <div style={{width:38,height:38,borderRadius:12,flexShrink:0,background:"linear-gradient(135deg,#9B30FF,#FF2D78)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,fontWeight:700,color:"white"}}>{(friend?.name||"?")[0].toUpperCase()}</div>
+      {/* Header */}
+      <div style={{padding:"54px 20px 14px",background:"var(--s1)",borderBottom:"1px solid var(--bdr)",display:"flex",alignItems:"center",gap:12,flexShrink:0}}>
+        <button onClick={onClose} style={{background:"none",border:"none",cursor:"pointer",color:"var(--txt)",padding:4,display:"flex",flexShrink:0}}>
+          <ArrowLeft size={22}/>
+        </button>
+        <div style={{width:40,height:40,borderRadius:13,flexShrink:0,background:"linear-gradient(135deg,#9B30FF,#FF2D78)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:17,fontWeight:700,color:"white"}}>
+          {(friend?.name||"?")[0].toUpperCase()}
+        </div>
         <div style={{flex:1,minWidth:0}}>
-          <div style={{fontSize:15,fontWeight:700}}>{friend?.name||"User"}</div>
+          <div style={{fontSize:15,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{friend?.name||"User"}</div>
           <div style={{fontSize:11,color:"var(--mut)"}}>{friend?.handle||""}</div>
         </div>
       </div>
-      <div style={{flex:1,overflowY:"auto",padding:"12px 14px 8px",display:"flex",flexDirection:"column",gap:2}}>
-        {!ready && <div style={{display:"flex",justifyContent:"center",padding:40}}><div style={{width:24,height:24,border:"2px solid rgba(155,48,255,0.25)",borderTopColor:"#9B30FF",borderRadius:"50%",animation:"vs-spin 0.7s linear infinite"}}/></div>}
-        {ready && messages.length===0 && (
-          <div style={{textAlign:"center",padding:"60px 20px",color:"var(--mut)"}}>
-            <div style={{fontSize:38,marginBottom:10}}>👋</div>
-            <div style={{fontSize:14,fontWeight:600,marginBottom:4}}>Say hi to {friend?.name}!</div>
-            <div style={{fontSize:12}}>Your conversation starts here</div>
+
+      {/* Messages */}
+      <div style={{flex:1,overflowY:"auto",padding:"16px 16px 8px",display:"flex",flexDirection:"column",gap:6}}>
+        {loading && (
+          <div style={{textAlign:"center",padding:40}}>
+            <div style={{width:28,height:28,border:"3px solid rgba(155,48,255,0.2)",borderTopColor:"#9B30FF",borderRadius:"50%",animation:"vs-spin 0.8s linear infinite",margin:"0 auto"}}/>
           </div>
         )}
-        {messages.map((m,i,arr) => {
-          const isMe = m.sender_id===userId;
-          const isLast = !arr[i+1] || arr[i+1].sender_id!==m.sender_id;
+        {!loading && messages.length === 0 && (
+          <div style={{textAlign:"center",padding:"48px 20px",color:"var(--mut)"}}>
+            <div style={{fontSize:36,marginBottom:12}}>💬</div>
+            <div style={{fontSize:14,fontWeight:600,marginBottom:4}}>Say hi to {friend?.name}!</div>
+            <div style={{fontSize:12}}>This is the start of your conversation</div>
+          </div>
+        )}
+        {messages.map((m, i) => {
+          const isMe = m.sender_id === userId;
+          const showTime = i === messages.length - 1 || messages[i+1]?.sender_id !== m.sender_id;
           return (
-            <div key={m.id} style={{display:"flex",flexDirection:"column",alignItems:isMe?"flex-end":"flex-start",marginBottom:isLast?6:1}}>
-              <div style={{maxWidth:"76%",background:isMe?"linear-gradient(135deg,#9B30FF,#FF2D78)":"var(--s2)",color:"white",padding:"9px 13px",
-                borderRadius:isMe?`18px 18px ${isLast?"4px":"18px"} 18px`:`18px 18px 18px ${isLast?"4px":"18px"}`,
-                fontSize:14,lineHeight:1.45,border:isMe?"none":"1px solid rgba(255,255,255,0.08)",
-                opacity:typeof m.id==="string"&&m.id.startsWith("t-")?0.7:1,transition:"opacity 0.3s",
+            <div key={m.id} style={{display:"flex",flexDirection:"column",alignItems:isMe?"flex-end":"flex-start"}}>
+              <div style={{
+                maxWidth:"75%",
+                background:isMe?"linear-gradient(135deg,#9B30FF,#FF2D78)":"var(--s1)",
+                color:"white",
+                padding:"10px 14px",
+                borderRadius:isMe?"18px 18px 4px 18px":"18px 18px 18px 4px",
+                fontSize:14,lineHeight:1.45,
+                border:isMe?"none":"1px solid var(--bdr)",
               }}>{m.content}</div>
-              {isLast && <div style={{fontSize:10,color:"var(--mut)",marginTop:2,padding:"0 4px"}}>{fmt(m.created_at)}</div>}
+              {showTime && <div style={{fontSize:10,color:"var(--mut)",marginTop:3,padding:"0 4px"}}>{formatTime(m.created_at)}</div>}
             </div>
           );
         })}
         <div ref={bottomRef}/>
       </div>
-      <div style={{padding:"8px 12px 34px",background:"rgba(14,14,30,0.98)",borderTop:"1px solid var(--bdr)",display:"flex",gap:8,alignItems:"center",flexShrink:0}}>
-        <input ref={inputRef} value={text} onChange={e=>setText(e.target.value)}
-          onKeyDown={e=>e.key==="Enter"&&!e.shiftKey&&(e.preventDefault(),send())}
+
+      {/* Input */}
+      <div style={{padding:"10px 16px 36px",background:"var(--s1)",borderTop:"1px solid var(--bdr)",display:"flex",gap:10,alignItems:"center",flexShrink:0}}>
+        <input value={text} onChange={e=>setText(e.target.value)}
+          onKeyDown={e=>e.key==="Enter"&&!e.shiftKey&&send()}
           placeholder={`Message ${friend?.name||""}…`}
           style={{flex:1,background:"var(--s2)",border:"1px solid var(--bdr)",borderRadius:22,padding:"11px 16px",fontSize:14,color:"var(--txt)",outline:"none",caretColor:"var(--p)"}}
         />
-        <button onClick={send} disabled={!text.trim()} style={{width:44,height:44,borderRadius:"50%",border:"none",flexShrink:0,
-          background:text.trim()?"linear-gradient(135deg,#9B30FF,#FF2D78)":"rgba(155,48,255,0.15)",
-          color:"white",cursor:text.trim()?"pointer":"default",display:"flex",alignItems:"center",justifyContent:"center",transition:"background 0.15s",
+        <button onClick={send} disabled={!text.trim()} style={{
+          width:44,height:44,borderRadius:"50%",border:"none",flexShrink:0,
+          background:text.trim()?"linear-gradient(135deg,#9B30FF,#FF2D78)":"rgba(255,255,255,0.07)",
+          color:"white",cursor:text.trim()?"pointer":"default",
+          display:"flex",alignItems:"center",justifyContent:"center",
+          transition:"background 0.2s",
         }}><Send size={17}/></button>
       </div>
     </div>
   );
 }
 
-// ─── MESSAGES TAB ─────────────────────────────────────────────────────────────
-function MessagesTab({ userId, onOpen }) {
-  const [convs, setConvs] = useState([]);
-  const [loading, setLoading] = useState(true);
-
-  const load = useCallback(async () => {
-    if (!userId) return;
-    const { data } = await supabase.from("conversations")
-      .select(`id,last_message,last_message_at,user_a,user_b,
-        profile_a:profiles!conversations_user_a_fkey(id,display_name,handle),
-        profile_b:profiles!conversations_user_b_fkey(id,display_name,handle)`)
-      .or(`user_a.eq.${userId},user_b.eq.${userId}`)
-      .order("last_message_at",{ascending:false});
-    if (data) setConvs(data);
-    setLoading(false);
-  }, [userId]);
-
-  useEffect(() => { load(); }, [load]);
-
-  useEffect(() => {
-    if (!userId) return;
-    const ch = supabase.channel(`convlist-${userId}`)
-      .on("postgres_changes",{event:"*",schema:"public",table:"conversations"},() => load())
-      .subscribe();
-    return () => supabase.removeChannel(ch);
-  }, [userId, load]);
-
-  return (
-    <div>
-      <div style={{padding:"24px 20px 16px"}}>
-        <h1 style={{fontFamily:"'Bebas Neue',cursive",fontSize:34,letterSpacing:2}}>Messages</h1>
-        <p style={{fontSize:13,color:"var(--mut)",marginTop:3}}>Your conversations</p>
-      </div>
-      {loading && <div style={{display:"flex",justifyContent:"center",padding:40}}><div style={{width:28,height:28,border:"3px solid rgba(155,48,255,0.2)",borderTopColor:"#9B30FF",borderRadius:"50%",animation:"vs-spin 0.8s linear infinite"}}/></div>}
-      {!loading && convs.length===0 && (
-        <div style={{textAlign:"center",padding:"60px 20px",color:"var(--mut)"}}>
-          <div style={{fontSize:40,marginBottom:12}}>💬</div>
-          <div style={{fontSize:15,fontWeight:700,marginBottom:6}}>No messages yet</div>
-          <div style={{fontSize:13}}>Go to Friends to start a conversation</div>
-        </div>
-      )}
-      {convs.map(c => {
-        const other = c.user_a===userId ? c.profile_b : c.profile_a;
-        if (!other) return null;
-        return (
-          <button key={c.id} onClick={()=>onOpen({id:other.id,name:other.display_name||"User",handle:other.handle||""})}
-            style={{width:"100%",background:"none",border:"none",borderBottom:"1px solid rgba(255,255,255,0.05)",
-              padding:"14px 20px",display:"flex",alignItems:"center",gap:14,cursor:"pointer",textAlign:"left"}}>
-            <div style={{width:50,height:50,borderRadius:16,flexShrink:0,background:"linear-gradient(135deg,#9B30FF,#FF2D78)",
-              display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,fontWeight:700,color:"white"}}>
-              {(other.display_name||"?")[0].toUpperCase()}
-            </div>
-            <div style={{flex:1,minWidth:0}}>
-              <div style={{fontSize:15,fontWeight:700,color:"var(--txt)"}}>{other.display_name||"User"}</div>
-              <div style={{fontSize:12,color:"var(--mut)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",marginTop:2}}>
-                {c.last_message||"Start a conversation…"}
-              </div>
-            </div>
-            <div style={{fontSize:11,color:"var(--mut)",flexShrink:0}}>{c.last_message_at?timeAgo(c.last_message_at):""}</div>
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
-// ─── FRIEND PROFILE ───────────────────────────────────────────────────────────
-function FriendProfile({ friend, clubs, userId, onMessage, onClose }) {
-  const [their, setTheir] = useState(null);
-  const [picks, setPicks] = useState([]);
-  const [removing, setRemoving] = useState(false);
-
-  useEffect(() => {
-    if (!friend?.id) return;
-    supabase.from("profiles").select("*").eq("id",friend.id).single()
-      .then(({data}) => { if (data) setTheir(data); });
-    const today = new Date().toISOString().split("T")[0];
-    supabase.from("picks").select("*,clubs(name,area,genre,heat)").eq("user_id",friend.id).eq("night_date",today).order("rank")
-      .then(({data}) => { if (data) setPicks(data); });
-  }, [friend?.id]);
-
-  const removeFriend = async () => {
-    setRemoving(true);
-    const [a,b] = [userId,friend.id].sort();
-    await supabase.from("friendships").delete().match({user_a:a,user_b:b});
-    onClose();
-  };
-
-  return (
-    <div style={{position:"fixed",inset:0,background:"var(--bg)",zIndex:300,display:"flex",flexDirection:"column",maxWidth:430,margin:"0 auto",overflowY:"auto"}}>
-      {/* Header */}
-      <div style={{padding:"50px 16px 12px",background:"var(--s1)",borderBottom:"1px solid var(--bdr)",display:"flex",alignItems:"center",gap:12,flexShrink:0}}>
-        <button onClick={onClose} style={{background:"none",border:"none",cursor:"pointer",color:"var(--txt)",padding:6,display:"flex",marginLeft:-6}}><ArrowLeft size={22}/></button>
-        <span style={{fontSize:15,fontWeight:700,flex:1}}>{friend?.name||"Profile"}</span>
-      </div>
-
-      {/* Profile hero */}
-      <div style={{padding:"32px 20px 24px",textAlign:"center",background:"linear-gradient(180deg,rgba(80,0,120,0.4) 0%,var(--bg) 100%)"}}>
-        <div style={{width:90,height:90,borderRadius:28,margin:"0 auto 14px",background:"linear-gradient(135deg,#9B30FF,#FF2D78)",
-          display:"flex",alignItems:"center",justifyContent:"center",fontSize:38,fontWeight:900,color:"white",
-          boxShadow:"0 0 40px rgba(155,48,255,0.45)"}}>
-          {(friend?.name||"?")[0].toUpperCase()}
-        </div>
-        <div style={{fontFamily:"'Bebas Neue',cursive",fontSize:28,letterSpacing:1}}>{their?.display_name||friend?.name}</div>
-        <div style={{fontSize:13,color:"var(--mut)",marginTop:2}}>{their?.handle||friend?.handle}</div>
-        {their?.city && <div style={{fontSize:12,color:"var(--mut)",marginTop:4}}>📍 {their.city}</div>}
-        {(their?.genres?.length||their?.vibes?.length) ? (
-          <div style={{display:"flex",flexWrap:"wrap",gap:8,justifyContent:"center",marginTop:14}}>
-            {[...(their.genres||[]),...(their.vibes||[])].map(t=>(
-              <span key={t} style={{background:"rgba(155,48,255,0.14)",border:"1px solid rgba(155,48,255,0.28)",color:"#C080FF",fontSize:12,fontWeight:600,padding:"4px 12px",borderRadius:99}}>{t}</span>
-            ))}
-          </div>
-        ):null}
-      </div>
-
-      {/* Tonight's picks */}
-      {picks.length>0 && (
-        <div style={{padding:"0 20px 20px"}}>
-          <div style={{fontSize:10,color:"var(--mut)",textTransform:"uppercase",letterSpacing:1,marginBottom:12}}>Tonight's picks</div>
-          {picks.map(p=>(
-            <div key={p.id} style={{background:"var(--s1)",border:`1px solid ${heatCol(p.clubs?.heat||40)}33`,borderRadius:14,padding:"12px 14px",marginBottom:8,display:"flex",alignItems:"center",gap:12}}>
-              <div style={{width:30,height:30,borderRadius:9,background:`${heatCol(p.clubs?.heat||40)}22`,border:`1px solid ${heatCol(p.clubs?.heat||40)}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:900,color:heatCol(p.clubs?.heat||40),fontFamily:"'Bebas Neue',cursive",flexShrink:0}}>#{p.rank}</div>
-              <div style={{flex:1,minWidth:0}}>
-                <div style={{fontSize:14,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.clubs?.name||"Unknown"}</div>
-                <div style={{fontSize:11,color:"var(--mut)"}}>{p.clubs?.area} · {p.clubs?.genre}</div>
-              </div>
-              <div style={{fontSize:13,fontWeight:800,color:likeCol(p.likelihood),flexShrink:0}}>{p.likelihood}%</div>
-            </div>
-          ))}
-        </div>
-      )}
-      {picks.length===0 && their && (
-        <div style={{padding:"0 20px 20px",textAlign:"center",color:"var(--mut)"}}>
-          <div style={{fontSize:13}}>No picks for tonight yet</div>
-        </div>
-      )}
-
-      {/* Actions */}
-      <div style={{padding:"8px 20px 48px",display:"flex",gap:10,marginTop:"auto"}}>
-        <button onClick={()=>{onClose();onMessage(friend);}} style={{flex:1,padding:14,borderRadius:14,border:"none",
-          background:"linear-gradient(135deg,#9B30FF,#FF2D78)",color:"white",fontSize:14,fontWeight:700,cursor:"pointer",
-          display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
-          <MessageCircle size={16}/> Message
-        </button>
-        <button onClick={removeFriend} disabled={removing} style={{padding:"14px 18px",borderRadius:14,
-          border:"1px solid rgba(255,45,120,0.25)",background:"rgba(255,45,120,0.08)",
-          color:"#FF2D78",fontSize:14,fontWeight:700,cursor:"pointer"}}>
-          {removing?"…":"Remove"}
-        </button>
-      </div>
-    </div>
-  );
-}
-
 // ─── BOTTOM NAV ───────────────────────────────────────────────────────────────
-function BottomNav({ tab, setTab, rankCount, unreadCount }) {
+function BottomNav({ tab, setTab, rankCount }) {
   const tabs=[
-    {id:"map",icon:<Navigation size={19}/>,label:"Explore"},
-    {id:"picks",icon:<Star size={19}/>,label:"Picks",badge:rankCount},
-    {id:"friends",icon:<Users size={19}/>,label:"Friends"},
-    {id:"messages",icon:<MessageSquare size={19}/>,label:"Messages",badge:unreadCount},
-    {id:"profile",icon:<User size={19}/>,label:"Profile"},
+    {id:"map",icon:<Navigation size={20}/>,label:"Explore"},
+    {id:"picks",icon:<Star size={20}/>,label:"My Picks",badge:rankCount},
+    {id:"friends",icon:<Users size={20}/>,label:"Friends"},
+    {id:"profile",icon:<User size={20}/>,label:"Profile"},
   ];
   return (
-    <div style={{position:"absolute",bottom:0,left:0,right:0,background:"rgba(8,8,18,0.97)",backdropFilter:"blur(20px)",borderTop:"1px solid rgba(155,48,255,0.15)",display:"flex",justifyContent:"space-around",padding:"8px 0 20px",zIndex:50}}>
+    <div style={{position:"absolute",bottom:0,left:0,right:0,background:"rgba(8,8,18,0.97)",backdropFilter:"blur(20px)",borderTop:"1px solid rgba(155,48,255,0.15)",display:"flex",justifyContent:"space-around",padding:"10px 0 22px",zIndex:50}}>
       {tabs.map(t=>(
-        <button key={t.id} onClick={()=>setTab(t.id)} style={{background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3,padding:"3px 10px",color:tab===t.id?"#9B30FF":"var(--mut)",position:"relative",transition:"color 0.2s",minWidth:0}}>
-          {t.badge>0&&<div style={{position:"absolute",top:0,right:6,width:16,height:16,borderRadius:"50%",background:"#FF2D78",fontSize:9,fontWeight:900,color:"white",display:"flex",alignItems:"center",justifyContent:"center"}}>{t.badge>9?"9+":t.badge}</div>}
-          <div style={{filter:tab===t.id?"drop-shadow(0 0 6px #9B30FF)":"none",transition:"filter 0.2s"}}>{t.icon}</div>
-          <span style={{fontSize:8,fontWeight:700,letterSpacing:0.3,textTransform:"uppercase",whiteSpace:"nowrap"}}>{t.label}</span>
+        <button key={t.id} onClick={()=>setTab(t.id)} style={{background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:4,padding:"4px 16px",color:tab===t.id?"#9B30FF":"var(--mut)",position:"relative",transition:"color 0.2s"}}>
+          {t.badge>0&&<div style={{position:"absolute",top:0,right:8,width:17,height:17,borderRadius:"50%",background:"#FF2D78",fontSize:9,fontWeight:900,color:"white",display:"flex",alignItems:"center",justifyContent:"center"}}>{t.badge}</div>}
+          <div style={{filter:tab===t.id?"drop-shadow(0 0 8px #9B30FF)":"none",transition:"filter 0.2s"}}>{t.icon}</div>
+          <span style={{fontSize:9,fontWeight:700,letterSpacing:0.4,textTransform:"uppercase"}}>{t.label}</span>
         </button>
       ))}
     </div>
