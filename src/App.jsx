@@ -118,6 +118,15 @@ const Spinner = () => (
   <span style={{display:"inline-block",width:18,height:18,border:"2px solid rgba(255,255,255,0.3)",borderTopColor:"white",borderRadius:"50%",animation:"vs-spin 0.7s linear infinite"}} />
 );
 
+const Avatar = ({ name, url, size=46, radius=14 }) => {
+  if (url) return <img src={url} alt={name||"avatar"} style={{width:size,height:size,borderRadius:radius,objectFit:"cover",flexShrink:0,border:"1px solid rgba(155,48,255,0.3)"}} />;
+  return (
+    <div style={{width:size,height:size,borderRadius:radius,flexShrink:0,background:"linear-gradient(135deg,#9B30FF,#FF2D78)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:Math.round(size*0.4),fontWeight:700,color:"white"}}>
+      {(name||"?")[0].toUpperCase()}
+    </div>
+  );
+};
+
 const Pill = ({children,active,onClick}) => (
   <button onClick={onClick} style={{
     background:active?"linear-gradient(135deg,#9B30FF,#FF2D78)":"rgba(14,14,30,0.9)",
@@ -186,12 +195,14 @@ export default function App() {
   const [unreadCount, setUnreadCount] = useState(0);
   const [unreadPerFriend, setUnreadPerFriend] = useState({});
   const [banner, setBanner] = useState(null);
+  const [reminderBanner, setReminderBanner] = useState(false);
   const [clubs, setClubs] = useState([]);
   const [notifications, setNotifications] = useState([]);
   const [friends, setFriends] = useState([]);
   const [profile, setProfile] = useState({
     name:"", handle:"", phone:"", age:"", gender:"", ethnicity:"",
     city:"", joined:"", genres:[], vibes:[], nights:0, visited:0, friendCount:0,
+    avatarUrl:"", nightsPerWeek:2,
   });
 
   // Auth state listener
@@ -206,33 +217,43 @@ export default function App() {
     return () => subscription.unsubscribe();
   }, []);
 
-  // Load profile when user logs in
+  // Load profile + real computed stats
   useEffect(() => {
     if (!user) { setProfileLoading(false); return; }
-    supabase.from("profiles").select("*").eq("id", user.id).single()
-      .then(({ data }) => {
-        if (data?.display_name) {
-          setProfile({
-            name: data.display_name || "",
-            handle: data.handle || "",
-            phone: data.phone || user.phone || "",
-            age: data.age || "",
-            gender: data.gender || "",
-            ethnicity: data.ethnicity || "",
-            city: data.city || "",
-            joined: new Date(data.created_at).toLocaleDateString("en-GB",{month:"short",year:"numeric"}),
-            genres: data.genres || [],
-            vibes: data.vibes || [],
-            nights: data.nights_out || 0,
-            visited: data.clubs_visited || 0,
-            friendCount: 0,
-          });
-          setOnboarded(true);
-        }
-        setProfileLoading(false);
-      })
-      .catch(() => setProfileLoading(false));
-  }, [user]);
+    const uid = user.id;
+    Promise.all([
+      supabase.from("profiles").select("*").eq("id", uid).single(),
+      supabase.from("picks").select("night_date,club_id").eq("user_id", uid),
+      supabase.from("friendships").select("id", {count:"exact",head:true})
+        .or(`user_a.eq.${uid},user_b.eq.${uid}`).eq("status","accepted"),
+    ]).then(([profileRes, picksRes, friendsRes]) => {
+      const data = profileRes.data;
+      if (data?.display_name) {
+        const nights = new Set((picksRes.data||[]).map(p => p.night_date)).size;
+        const visited = new Set((picksRes.data||[]).map(p => p.club_id)).size;
+        const friendCount = friendsRes.count || 0;
+        setProfile({
+          name: data.display_name || "",
+          handle: data.handle || "",
+          phone: data.phone || user.phone || "",
+          age: data.age || "",
+          gender: data.gender || "",
+          ethnicity: data.ethnicity || "",
+          city: data.city || "",
+          joined: new Date(data.created_at).toLocaleDateString("en-GB",{month:"short",year:"numeric"}),
+          genres: data.genres || [],
+          vibes: data.vibes || [],
+          nights,
+          visited,
+          friendCount,
+          avatarUrl: data.avatar_url || "",
+          nightsPerWeek: data.nights_per_week ?? 2,
+        });
+        setOnboarded(true);
+      }
+      setProfileLoading(false);
+    }).catch(() => setProfileLoading(false));
+  }, [user?.id]);
 
   // Load clubs from Supabase + realtime subscription
   useEffect(() => {
@@ -382,6 +403,42 @@ export default function App() {
 
   const myRank = useCallback(id => rankings.find(r => r.clubId === id), [rankings]);
 
+  // Nightly reminder based on nights_per_week
+  useEffect(() => {
+    if (!user?.id || !profile.nightsPerWeek) return;
+    // Days to remind: work backwards from Saturday
+    // 0=Sun,1=Mon,2=Tue,3=Wed,4=Thu,5=Fri,6=Sat
+    const goingOutDays = [6,5,4,3,2,1,0].slice(0, profile.nightsPerWeek);
+    const check = () => {
+      const now = new Date();
+      const hour = now.getHours();
+      const day = now.getDay();
+      if (hour < 18 || hour >= 22) return;
+      if (!goingOutDays.includes(day)) return;
+      const key = `drift_reminder_${now.toDateString()}`;
+      if (localStorage.getItem(key)) return;
+      localStorage.setItem(key, "1");
+      setReminderBanner(true);
+    };
+    check();
+    const t = setInterval(check, 60000);
+    return () => clearInterval(t);
+  }, [user?.id, profile.nightsPerWeek]);
+
+  const refreshStats = useCallback(async () => {
+    if (!user?.id) return;
+    const uid = user.id;
+    const [picksRes, friendsRes] = await Promise.all([
+      supabase.from("picks").select("night_date,club_id").eq("user_id", uid),
+      supabase.from("friendships").select("id",{count:"exact",head:true})
+        .or(`user_a.eq.${uid},user_b.eq.${uid}`).eq("status","accepted"),
+    ]);
+    const nights = new Set((picksRes.data||[]).map(p => p.night_date)).size;
+    const visited = new Set((picksRes.data||[]).map(p => p.club_id)).size;
+    const friendCount = friendsRes.count || 0;
+    setProfile(prev => ({...prev, nights, visited, friendCount}));
+  }, [user?.id]);
+
   const toggleRank = useCallback(async id => {
     if (!user) return;
     const today = new Date().toISOString().split("T")[0];
@@ -393,13 +450,18 @@ export default function App() {
       for (const r of updated) {
         await supabase.from("picks").upsert({user_id:user.id,club_id:r.clubId,rank:r.rank,likelihood:r.likelihood,night_date:today},{onConflict:"user_id,club_id,night_date"});
       }
+      // Locally reduce heat estimate
+      setClubs(prev => prev.map(c => c.id===id ? {...c, voters:Math.max(0,c.voters-1), heat:Math.max(0,c.heat-3)} : c));
     } else {
       if (rankings.length >= 3) return;
       const newRank = rankings.length + 1;
       await supabase.from("picks").upsert({user_id:user.id,club_id:id,rank:newRank,likelihood:65,night_date:today},{onConflict:"user_id,club_id,night_date"});
       setRankings(prev => [...prev, {clubId:id, rank:newRank, likelihood:65}]);
+      // Locally bump heat estimate immediately
+      setClubs(prev => prev.map(c => c.id===id ? {...c, voters:c.voters+1, heat:Math.min(99,c.heat+5)} : c));
     }
-  }, [user, rankings]);
+    refreshStats();
+  }, [user, rankings, refreshStats]);
 
   const updateLikelihood = useCallback(async (id, val) => {
     if (!user) return;
@@ -407,6 +469,8 @@ export default function App() {
     const r = rankings.find(r => r.clubId === id);
     if (r) await supabase.from("picks").upsert({user_id:user.id,club_id:id,rank:r.rank,likelihood:val,night_date:today},{onConflict:"user_id,club_id,night_date"});
     setRankings(prev => prev.map(r => r.clubId===id ? {...r,likelihood:val} : r));
+    // Update likelihood locally for heatmap
+    setClubs(prev => prev.map(c => c.id===id ? {...c, likelihood:val} : c));
   }, [user, rankings]);
 
   const handleSelect = useCallback(c => { setSelected(c); setSheetOpen(true); }, []);
@@ -421,6 +485,7 @@ export default function App() {
       gender: updated.gender,
       ethnicity: updated.ethnicity,
       city: updated.city,
+      nights_per_week: updated.nightsPerWeek ?? 2,
       updated_at: new Date().toISOString(),
     });
     setProfile(updated);
@@ -469,14 +534,15 @@ export default function App() {
           totalVoters={totalVoters} userCity={profile.city} />
       </div>
       {tab==="picks" && <div style={{position:"absolute",inset:0,bottom:70,overflowY:"auto"}}><PicksTab clubs={clubs} rankings={rankings} onToggle={toggleRank} onLikelihood={updateLikelihood} /></div>}
-      {tab==="friends" && <div style={{position:"absolute",inset:0,bottom:70,overflowY:"auto"}}><FriendsTab friends={friends} clubs={clubs} userId={user?.id} onMessage={f=>setChatFriend(f)} onViewProfile={f=>setViewProfile(f)} unreadPerFriend={unreadPerFriend} /></div>}
+      {tab==="friends" && <div style={{position:"absolute",inset:0,bottom:70,overflowY:"auto"}}><FriendsTab friends={friends} clubs={clubs} userId={user?.id} onMessage={f=>setChatFriend(f)} onViewProfile={f=>setViewProfile(f)} unreadPerFriend={unreadPerFriend} onFriendChange={refreshStats} /></div>}
       {tab==="messages" && <div style={{position:"absolute",inset:0,bottom:70,overflowY:"auto"}}><MessagesTab userId={user?.id} onOpen={f=>{setChatFriend(f); setUnreadCount(c=>Math.max(0,c-1));}} /></div>}
       {tab==="profile" && <div style={{position:"absolute",inset:0,bottom:70,overflowY:"auto"}}><ProfileTab profile={profile} setProfile={saveProfile} onLogout={async () => { await supabase.auth.signOut(); setUser(null); setOnboarded(false); setRankings([]); setFriends([]); setNotifications([]); setTab("map"); }} /></div>}
 
       {/* Chat overlay */}
       {chatFriend && <ChatScreen friend={chatFriend} userId={user?.id} onClose={() => { setChatFriend(null); }} onUnreadClear={() => setUnreadCount(c => Math.max(0,c-1))} />}
-      {viewProfile && <FriendProfile friend={viewProfile} clubs={clubs} userId={user?.id} onMessage={f=>{setViewProfile(null); setChatFriend(f);}} onClose={() => setViewProfile(null)} />}
+      {viewProfile && <FriendProfile friend={viewProfile} clubs={clubs} userId={user?.id} onMessage={f=>{setViewProfile(null); setChatFriend(f);}} onClose={() => setViewProfile(null)} onFriendChange={refreshStats} />}
       {banner && <NotificationBanner banner={banner} onTap={() => { setChatFriend(banner.friend); setBanner(null); }} onClose={() => setBanner(null)} />}
+      {reminderBanner && <ReminderBanner onTap={() => { setReminderBanner(false); setTab("picks"); }} onClose={() => setReminderBanner(false)} />}
 
       {sheetOpen && selected && (
         <ClubSheet
@@ -625,7 +691,16 @@ function OnboardingScreen({ profile, setProfile, userId, onDone }) {
   const go = async () => {
     if (step < steps.length-1) { setStep(n => n+1); return; }
     setSaving(true);
-    const handle = `@${draft.name.toLowerCase().replace(/\s+/g,"")}`;
+    let base = `@${draft.name.toLowerCase().replace(/\s+/g,"").replace(/[^a-z0-9._]/g,"")}`;
+    let handle = base;
+    // Ensure uniqueness
+    let attempts = 0;
+    while (attempts < 10) {
+      const { data } = await supabase.from("profiles").select("id").eq("handle", handle).maybeSingle();
+      if (!data) break;
+      handle = `${base}${Math.floor(Math.random()*999)+1}`;
+      attempts++;
+    }
     const { error } = await supabase.from("profiles").upsert({
       id: userId,
       display_name: draft.name,
@@ -634,10 +709,11 @@ function OnboardingScreen({ profile, setProfile, userId, onDone }) {
       gender: draft.gender,
       ethnicity: draft.ethnicity,
       city: draft.city,
+      nights_per_week: 2,
       updated_at: new Date().toISOString(),
     });
     setSaving(false);
-    if (!error) { setProfile({...draft, handle}); onDone(); }
+    if (!error) { setProfile({...draft, handle, nightsPerWeek:2}); onDone(); }
   };
 
   return (
@@ -1052,7 +1128,7 @@ function PicksTab({ clubs, rankings, onToggle, onLikelihood }) {
 }
 
 // ─── FRIENDS TAB ──────────────────────────────────────────────────────────────
-function FriendsTab({ friends, clubs, userId, onMessage, onViewProfile, unreadPerFriend = {} }) {
+function FriendsTab({ friends, clubs, userId, onMessage, onViewProfile, unreadPerFriend = {}, onFriendChange }) {
   const going = friends.filter(f=>f.goingTo);
   const unsure = friends.filter(f=>!f.goingTo);
   const [activeTab, setActiveTab] = useState("friends");
@@ -1076,11 +1152,13 @@ function FriendsTab({ friends, clubs, userId, onMessage, onViewProfile, unreadPe
   const acceptRequest = async (friendshipId, fromUserId) => {
     await supabase.from("friendships").update({ status: "accepted" }).eq("id", friendshipId);
     setIncomingRequests(prev => prev.filter(r => r.id !== friendshipId));
+    onFriendChange?.();
   };
 
   const declineRequest = async (friendshipId) => {
     await supabase.from("friendships").delete().eq("id", friendshipId);
     setIncomingRequests(prev => prev.filter(r => r.id !== friendshipId));
+    onFriendChange?.();
   };
 
   useEffect(() => {
@@ -1271,10 +1349,40 @@ function FriendsTab({ friends, clubs, userId, onMessage, onViewProfile, unreadPe
 function ProfileTab({ profile, setProfile, onLogout }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState({...profile});
-  const save = () => { setProfile({...draft}); setEditing(false); };
+  const [handleError, setHandleError] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const fileRef = useRef(null);
+
+  const uploadAvatar = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    const ext = file.name.split(".").pop();
+    const path = `${profile.handle || Date.now()}.${ext}`;
+    const { error: upErr } = await supabase.storage.from("avatars").upload(path, file, {upsert:true});
+    if (!upErr) {
+      const { data } = supabase.storage.from("avatars").getPublicUrl(path);
+      const url = data.publicUrl;
+      await supabase.from("profiles").update({avatar_url:url}).eq("handle", profile.handle);
+      setProfile({...profile, avatarUrl:url});
+    }
+    setUploading(false);
+  };
+
+  const save = async () => {
+    setHandleError("");
+    // Check handle uniqueness if changed
+    if (draft.handle !== profile.handle && draft.handle) {
+      const { data } = await supabase.from("profiles").select("id").eq("handle", draft.handle).maybeSingle();
+      if (data) { setHandleError("That handle is already taken"); return; }
+    }
+    setProfile({...draft});
+    setEditing(false);
+  };
 
   const fields = [
     {k:"name",l:"Name",t:"text"},
+    {k:"handle",l:"Handle",t:"text"},
     {k:"age",l:"Age",t:"number"},
     {k:"phone",l:"Phone",t:"text"},
     {k:"gender",l:"Gender",t:"select",o:["Male","Female","Non-binary","Transgender","Genderqueer","Agender","Other","Prefer not to say"]},
@@ -1285,7 +1393,17 @@ function ProfileTab({ profile, setProfile, onLogout }) {
   return (
     <div style={{padding:"0 0 24px"}}>
       <div style={{background:"linear-gradient(180deg,rgba(80,0,120,0.55) 0%,var(--bg) 100%)",padding:"44px 20px 24px",textAlign:"center",borderBottom:"1px solid var(--bdr)"}}>
-        <div style={{width:82,height:82,borderRadius:26,margin:"0 auto 12px",background:"linear-gradient(135deg,#9B30FF,#FF2D78)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:36,fontWeight:900,color:"white",fontFamily:"'Bebas Neue',cursive",boxShadow:"0 0 40px rgba(155,48,255,0.4)"}}>{(profile.name||"?")[0].toUpperCase()}</div>
+        {/* Clickable avatar with upload */}
+        <div style={{position:"relative",width:90,height:90,margin:"0 auto 12px",cursor:"pointer"}} onClick={()=>fileRef.current?.click()}>
+          {profile.avatarUrl
+            ? <img src={profile.avatarUrl} alt="avatar" style={{width:90,height:90,borderRadius:28,objectFit:"cover",boxShadow:"0 0 40px rgba(155,48,255,0.4)"}}/>
+            : <div style={{width:90,height:90,borderRadius:28,background:"linear-gradient(135deg,#9B30FF,#FF2D78)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:36,fontWeight:900,color:"white",fontFamily:"'Bebas Neue',cursive",boxShadow:"0 0 40px rgba(155,48,255,0.4)"}}>{(profile.name||"?")[0].toUpperCase()}</div>
+          }
+          <div style={{position:"absolute",bottom:0,right:0,width:26,height:26,borderRadius:8,background:"linear-gradient(135deg,#9B30FF,#FF2D78)",border:"2px solid var(--bg)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13}}>
+            {uploading ? "⏳" : "📷"}
+          </div>
+          <input ref={fileRef} type="file" accept="image/*" onChange={uploadAvatar} style={{display:"none"}}/>
+        </div>
         <div style={{fontFamily:"'Bebas Neue',cursive",fontSize:26,letterSpacing:1}}>{profile.name}</div>
         <div style={{fontSize:13,color:"var(--mut)",marginTop:2}}>{profile.handle} · since {profile.joined}</div>
         <div style={{display:"flex",justifyContent:"center",gap:28,marginTop:20}}>
@@ -1314,13 +1432,26 @@ function ProfileTab({ profile, setProfile, onLogout }) {
                   </select>
                 ):(
                   <input type={f.t} value={draft[f.k]} onChange={e=>setDraft({...draft,[f.k]:e.target.value})}
-                    style={{background:"var(--s2)",border:"1px solid var(--bdr)",color:"var(--txt)",fontSize:12,padding:"4px 8px",borderRadius:8,width:130,textAlign:"right"}}/>
+                    style={{background:"var(--s2)",border:`1px solid ${f.k==="handle"&&handleError?"#FF2D78":"var(--bdr)"}`,color:"var(--txt)",fontSize:12,padding:"4px 8px",borderRadius:8,width:130,textAlign:"right"}}/>
                 )
               ):(
                 <span style={{fontSize:13,fontWeight:600}}>{profile[f.k]}</span>
               )}
             </div>
           ))}
+          {handleError && <div style={{fontSize:11,color:"#FF2D78",marginTop:4,textAlign:"right"}}>{handleError}</div>}
+          {/* Nights per week */}
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"9px 0",borderTop:"1px solid rgba(255,255,255,0.04)",marginTop:4}}>
+            <span style={{fontSize:13,color:"var(--mut)"}}>Nights out / week</span>
+            {editing?(
+              <select value={draft.nightsPerWeek} onChange={e=>setDraft({...draft,nightsPerWeek:parseInt(e.target.value)})}
+                style={{background:"var(--s2)",border:"1px solid var(--bdr)",color:"var(--txt)",fontSize:12,padding:"4px 8px",borderRadius:8}}>
+                {[0,1,2,3,4,5,6,7].map(n=><option key={n} value={n}>{n} night{n!==1?"s":""}</option>)}
+              </select>
+            ):(
+              <span style={{fontSize:13,fontWeight:600}}>{profile.nightsPerWeek} night{profile.nightsPerWeek!==1?"s":""}/wk</span>
+            )}
+          </div>
         </div>
         <div style={{background:"var(--s1)",borderRadius:16,padding:16,marginBottom:12,border:"1px solid var(--bdr)"}}>
           <div style={{fontSize:10,color:"var(--mut)",textTransform:"uppercase",letterSpacing:1,marginBottom:12}}>My Vibes</div>
@@ -1346,7 +1477,6 @@ function ProfileTab({ profile, setProfile, onLogout }) {
   );
 }
 
-// ─── CHAT SCREEN ──────────────────────────────────────────────────────────────
 // ─── CHAT SCREEN ──────────────────────────────────────────────────────────────
 function ChatScreen({ friend, userId, onClose, onUnreadClear }) {
   const [messages, setMessages] = useState([]);
@@ -1425,7 +1555,7 @@ function ChatScreen({ friend, userId, onClose, onUnreadClear }) {
     <div style={{position:"fixed",inset:0,background:"var(--bg)",zIndex:300,display:"flex",flexDirection:"column",maxWidth:430,margin:"0 auto"}}>
       <div style={{padding:"50px 16px 12px",background:"var(--s1)",borderBottom:"1px solid var(--bdr)",display:"flex",alignItems:"center",gap:12,flexShrink:0}}>
         <button onClick={onClose} style={{background:"none",border:"none",cursor:"pointer",color:"var(--txt)",padding:6,display:"flex",marginLeft:-6}}><ArrowLeft size={22}/></button>
-        <div style={{width:38,height:38,borderRadius:12,flexShrink:0,background:"linear-gradient(135deg,#9B30FF,#FF2D78)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,fontWeight:700,color:"white"}}>{(friend?.name||"?")[0].toUpperCase()}</div>
+        <Avatar name={friend?.name} url={friend?.avatarUrl} size={38} radius={12} />
         <div style={{flex:1,minWidth:0}}>
           <div style={{fontSize:15,fontWeight:700}}>{friend?.name||"User"}</div>
           <div style={{fontSize:11,color:"var(--mut)"}}>{friend?.handle||""}</div>
@@ -1480,8 +1610,8 @@ function MessagesTab({ userId, onOpen }) {
     if (!userId) return;
     const { data } = await supabase.from("conversations")
       .select(`id,last_message,last_message_at,user_a,user_b,
-        profile_a:profiles!conversations_user_a_fkey(id,display_name,handle),
-        profile_b:profiles!conversations_user_b_fkey(id,display_name,handle)`)
+        profile_a:profiles!conversations_user_a_fkey(id,display_name,handle,avatar_url),
+        profile_b:profiles!conversations_user_b_fkey(id,display_name,handle,avatar_url)`)
       .or(`user_a.eq.${userId},user_b.eq.${userId}`)
       .order("last_message_at",{ascending:false});
     if (data) setConvs(data);
@@ -1516,13 +1646,10 @@ function MessagesTab({ userId, onOpen }) {
         const other = c.user_a===userId ? c.profile_b : c.profile_a;
         if (!other) return null;
         return (
-          <button key={c.id} onClick={()=>onOpen({id:other.id,name:other.display_name||"User",handle:other.handle||""})}
+          <button key={c.id} onClick={()=>onOpen({id:other.id,name:other.display_name||"User",handle:other.handle||"",avatarUrl:other.avatar_url||""})}
             style={{width:"100%",background:"none",border:"none",borderBottom:"1px solid rgba(255,255,255,0.05)",
               padding:"14px 20px",display:"flex",alignItems:"center",gap:14,cursor:"pointer",textAlign:"left"}}>
-            <div style={{width:50,height:50,borderRadius:16,flexShrink:0,background:"linear-gradient(135deg,#9B30FF,#FF2D78)",
-              display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,fontWeight:700,color:"white"}}>
-              {(other.display_name||"?")[0].toUpperCase()}
-            </div>
+            <Avatar name={other.display_name} url={other.avatar_url} size={50} radius={16} />
             <div style={{flex:1,minWidth:0}}>
               <div style={{fontSize:15,fontWeight:700,color:"var(--txt)"}}>{other.display_name||"User"}</div>
               <div style={{fontSize:12,color:"var(--mut)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",marginTop:2}}>
@@ -1538,7 +1665,7 @@ function MessagesTab({ userId, onOpen }) {
 }
 
 // ─── FRIEND PROFILE ───────────────────────────────────────────────────────────
-function FriendProfile({ friend, clubs, userId, onMessage, onClose }) {
+function FriendProfile({ friend, clubs, userId, onMessage, onClose, onFriendChange }) {
   const [their, setTheir] = useState(null);
   const [picks, setPicks] = useState([]);
   const [removing, setRemoving] = useState(false);
@@ -1556,6 +1683,7 @@ function FriendProfile({ friend, clubs, userId, onMessage, onClose }) {
     setRemoving(true);
     const [a,b] = [userId,friend.id].sort();
     await supabase.from("friendships").delete().match({user_a:a,user_b:b});
+    onFriendChange?.();
     onClose();
   };
 
@@ -1677,6 +1805,40 @@ function NotificationBanner({ banner, onTap, onClose }) {
       <div style={{height:2,background:"rgba(155,48,255,0.2)",borderRadius:1,margin:"6px 4px 0",overflow:"hidden"}}>
         <div style={{height:"100%",background:"linear-gradient(90deg,#9B30FF,#FF2D78)",borderRadius:1,
           animation:"vs-shrink 4s linear forwards"}}/>
+      </div>
+    </div>
+  );
+}
+
+// ─── REMINDER BANNER ─────────────────────────────────────────────────────────
+function ReminderBanner({ onTap, onClose }) {
+  const [visible, setVisible] = useState(true);
+  useEffect(() => {
+    const t = setTimeout(() => { setVisible(false); setTimeout(onClose, 300); }, 8000);
+    return () => clearTimeout(t);
+  }, []);
+  return (
+    <div style={{position:"fixed",top:0,left:0,right:0,zIndex:499,padding:"52px 12px 0",maxWidth:430,margin:"0 auto",
+      animation:visible?"vs-slideDown 0.35s cubic-bezier(0.34,1.56,0.64,1)":"none",
+      opacity:visible?1:0,transition:"opacity 0.3s",pointerEvents:"auto"}}>
+      <button onClick={onTap} style={{width:"100%",background:"rgba(12,12,24,0.96)",backdropFilter:"blur(24px)",
+        border:"1px solid rgba(0,204,255,0.35)",borderRadius:18,padding:"12px 14px",
+        display:"flex",alignItems:"center",gap:12,cursor:"pointer",textAlign:"left",
+        boxShadow:"0 8px 40px rgba(0,0,0,0.7),0 0 0 1px rgba(0,204,255,0.12)"}}>
+        <div style={{width:42,height:42,borderRadius:13,flexShrink:0,background:"linear-gradient(135deg,#00CCFF,#9B30FF)",
+          display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,boxShadow:"0 0 16px rgba(0,204,255,0.4)"}}>🌙</div>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{fontSize:13,fontWeight:700,color:"var(--txt)",marginBottom:2}}>Time to plan your night!</div>
+          <div style={{fontSize:12,color:"rgba(255,255,255,0.6)"}}>Where are you heading tonight? Tap to pick your clubs 🎉</div>
+        </div>
+        <button onClick={e=>{e.stopPropagation();setVisible(false);setTimeout(onClose,300);}}
+          style={{width:28,height:28,borderRadius:8,background:"rgba(255,255,255,0.08)",border:"none",
+            color:"var(--mut)",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+          <X size={13}/>
+        </button>
+      </button>
+      <div style={{height:2,background:"rgba(0,204,255,0.2)",borderRadius:1,margin:"6px 4px 0",overflow:"hidden"}}>
+        <div style={{height:"100%",background:"linear-gradient(90deg,#00CCFF,#9B30FF)",borderRadius:1,animation:"vs-shrink 8s linear forwards"}}/>
       </div>
     </div>
   );
